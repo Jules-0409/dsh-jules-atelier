@@ -1,0 +1,55 @@
+{
+  "name": "dsh-jules-atelier",
+  "version": "0.2.4",
+  "description": "Jules Atelier suite: full paper & gold skin with serif typography and motion, ASCII whale hero, token heatmap, per-session cost ledger, context usage, sidebar daily spend and an Atelier settings page (prices, currency, budget).",
+  "type": "module",
+  "license": "MIT",
+  "author": "Jules",
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-theme": ">=0.2.0-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-theme": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "immediately": true
+    }
+  }
+}

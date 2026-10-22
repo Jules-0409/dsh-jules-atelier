@@ -1,0 +1,4 @@
+# Jules Atelier theme plugin: insert the plugin row into the composed configuration.
+- insert:
+    - id: dsh-jules-atelier
+      name: 'dsh-jules-atelier'
