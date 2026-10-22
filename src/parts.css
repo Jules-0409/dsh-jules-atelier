@@ -99,7 +99,7 @@ body[data-ds-dark-theme] .ja-root{--canvas:#1C1B19;--paper:#22211E;--ink:#ECE5D6
 .ja-sw:after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--paper);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .3s cubic-bezier(.2,.7,.2,1)}
 .ja-sw[aria-checked=true]{background:var(--gold)}
 .ja-sw[aria-checked=true]:after{transform:translateX(16px)}
-.ja-seg{display:inline-flex;padding:2px;border:1px solid var(--line-2);border-radius:999px;background:var(--paper)}
+.ja-seg{display:inline-flex;flex:none;padding:2px;border:1px solid var(--line-2);border-radius:999px;background:var(--paper)}
 .ja-seg button{border:0;background:none;padding:5px 12px;border-radius:999px;font:600 12px/1 var(--f-sans);color:var(--ink-2);cursor:pointer;transition:background .2s,color .2s}
 .ja-seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
 .ja-in{width:84px;height:30px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--paper);color:var(--ink);font:650 12.5px/1 var(--f-sans);font-variant-numeric:tabular-nums;text-align:right;outline:none;transition:border-color .2s,box-shadow .2s}
@@ -132,3 +132,11 @@ body.ja-skin :is(button,a,[role=button],[role=menuitem]):is(:hover,:focus-visibl
 .ja-line{margin:-14px 0 12px;text-align:center;font:400 27px/1.2 var(--f-serif);letter-spacing:-.005em;color:var(--ink)}
 .ja-line em{font-style:italic;color:var(--gold-deep)}
 @media (max-height:600px){.ja-line{font-size:22px;margin:0 0 4px}}
+.ja-btn{flex:none;border:1px solid var(--line-2);border-radius:999px;background:var(--paper);padding:7px 14px;font:600 12px/1 var(--f-sans);color:var(--ink);cursor:pointer;white-space:nowrap;transition:background .2s,color .2s,border-color .2s}
+.ja-btn:hover{border-color:var(--gold-deep)}
+.ja-btn-ink{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.ja-btn-ink:hover{background:var(--gold-deep);border-color:var(--gold-deep)}
+.ja-btn:disabled{opacity:.5;cursor:default}
+.ja-toast{position:fixed;right:20px;bottom:20px;z-index:2147483000;max-width:340px;padding:11px 16px;border:1px solid var(--line-2);border-left:3px solid var(--gold-deep);border-radius:10px;background:var(--paper);color:var(--ink);font:500 13px/1.45 var(--f-sans);box-shadow:0 10px 30px rgba(40,30,10,.16);cursor:pointer;animation:ja-toast-in .35s ease-out}
+.ja-toast.out{opacity:0;transform:translateY(6px);transition:opacity .35s,transform .35s}
+@keyframes ja-toast-in{from{opacity:0;transform:translateY(8px)}}

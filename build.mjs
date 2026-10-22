@@ -4,6 +4,7 @@ const src = read('src/client.src.js')
 const whale = read('src/whale.core.js').split('\n').map(l => '  ' + l).join('\n')
 const fish = read('src/fish.txt').trim()
 const body = src
+  .replace('__VERSION__', () => JSON.parse(read('package.json')).version)
   .replace('__WHALE__', () => whale)
   .replace('"__FISH__"', () => JSON.stringify(fish))
   .replace('__FONTS__', () => JSON.stringify(read('src/fonts.css')))

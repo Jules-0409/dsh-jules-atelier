@@ -14,6 +14,7 @@
 - **38 engraved icons** — sidebar, composer and message-action icons replaced at runtime with fine-line versions with a single gold accent. One switch restores the originals.
 - **Your name** — the sidebar wordmark, monogram and greeting use your account name (or OS user name) automatically; override it in Settings → Atelier → Name.
 - **Atelier settings page** — toggle each part, set currency, exchange rate, per-model prices and a daily budget.
+- **Self-update from GitHub** — checks this repo on start and every 12 hours, downloads the new version in the background and tells you to restart Harness. Choose *Auto / Notify only / Off* in Settings → Atelier → Updates.
 
 Everything is computed **locally** from your session logs in `~/.dsh/sessions`. Nothing leaves your machine. Prices are estimates.
 
@@ -38,6 +39,8 @@ On Windows the CLI is `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtim
 
 Make sure `dsh-jules-atelier` is listed in `dsh.profile.bundles` of `~/.dsh/profiles/desktop/package.json`, then start Harness. Other theme plugins that repaint the UI (e.g. background/theme plugins) may conflict — disable them while trying Atelier.
 
+**Updating:** built in. Settings → Atelier → Updates → *Check for updates*. If the folder is a git clone it runs `git pull --ff-only`, otherwise it downloads the `main` tarball from GitHub and replaces the files in place (the previous `lib/` is kept in `~/.dsh/.jules-atelier/backup/`). Restart Harness to load the new version. Only GitHub is contacted, and only for this repo.
+
 **Uninstall:** `"$DSH" plugin --profile desktop remove dsh-jules-atelier`
 
 ## Build from source
@@ -49,7 +52,7 @@ node build.mjs
 ```
 
 - `src/client.src.js` — client half (React UI, skin, icons, ledger UI)
-- `lib/index.js` — host half (reads session logs, aggregates usage, stores settings in `~/.dsh/.jules-atelier/`)
+- `lib/index.js` — host half (reads session logs, aggregates usage, stores settings in `~/.dsh/.jules-atelier/`, self-update)
 - `src/skin.css`, `src/parts.css` — theme styles
 - `src/icons.json` — engraved icons, keyed by a geometry signature of the original icon (`tools/icons.mjs` regenerates it from a dump of the host icons, which is not included)
 
@@ -58,6 +61,8 @@ The skin targets Harness' CSS-module class names, so a Harness update can break 
 ## 中文简介
 
 Jules Atelier 是 DeepSeek Harness 桌面版的一套「纸与金」主题插件：日夜两套纸色、衬线字体、首页 ASCII 鲸鱼、token 热力图、每个会话的费用账本、重绘的上下文面板，以及 38 个手绘细线图标。所有数据都在本机计算，不上传。
+
+内置自动更新：启动时和每 12 小时检查一次 GitHub，有新版就在后台下载，重启 Harness 后生效；在「设置 › Atelier › Updates」里可以改成「仅提醒」或「关闭」，也可以手动「检查更新」。
 
 ## License
 

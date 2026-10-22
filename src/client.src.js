@@ -2,6 +2,7 @@ let React = require("react");
 const ReactDOM = require("react-dom");
 const h = React.createElement;
 const name = "dsh-jules-atelier";
+const VERSION = "__VERSION__";
 const inject = ["slots", "theme", "connection"];
 const API = "jules-atelier/";
 const FISH = "__FISH__";
@@ -122,7 +123,7 @@ const TOKENS = {
 
 
 /* ---------------- settings + pricing ---------------- */
-const DEFAULTS = { name: "", skin: true, fonts: true, paper: true, motion: true, hero: true, heat: true, icons: true, ledger: true, sideLedger: true, currency: "CNY", rate: 7.1, budget: 0, prices: {} };
+const DEFAULTS = { name: "", skin: true, fonts: true, paper: true, motion: true, hero: true, heat: true, icons: true, ledger: true, sideLedger: true, currency: "CNY", rate: 7.1, budget: 0, prices: {}, update: "auto" };
 // USD per 1M tokens: [uncached input, cache read, output]. Editable in Settings → Atelier.
 const PRICE_BOOK = [
   [/deepseek.*(flash|chat)/i, [0.3, 0.006, 1.2], "DeepSeek Flash"],
@@ -176,6 +177,59 @@ async function loadSettings() {
   try { store.settings = { ...DEFAULTS, ...(await api("settings/get")) }; } catch (e) { console.warn("jules-atelier: settings failed", e); }
   store.loaded = true; applyBodyFlags(); emit();
 }
+/* ---------------- self-update (host checks GitHub, replaces the plugin folder) ---------------- */
+const upd = { info: null, busy: false, err: "" };
+async function updApi(post, fresh) {
+  const r = await fetch("api/jules-atelier.update" + (fresh ? "?fresh=1" : ""), { credentials: "same-origin", cache: "no-store", ...(post ? { method: "POST" } : {}) });
+  const res = r.ok ? await r.json().catch(() => null) : await r.json().catch(() => null);
+  if (!res || !res.ok) throw new Error((res && res.error) || `HTTP ${r.status}`);
+  return res.value;
+}
+async function updCheck(fresh) {
+  upd.busy = true; upd.err = ""; emit();
+  try { upd.info = await updApi(false, fresh); } catch (e) { upd.err = String(e.message || e); }
+  upd.busy = false; emit(); return upd.info;
+}
+async function updRun() {
+  upd.busy = true; upd.err = ""; emit();
+  try { upd.info = await updApi(true); } catch (e) { upd.err = String(e.message || e); }
+  upd.busy = false; emit();
+}
+function toast(text) {
+  if (!document.body) return;
+  const el = document.createElement("div");
+  el.className = "ja-root ja-toast"; el.setAttribute("role", "status"); el.textContent = text;
+  const close = () => { el.classList.add("out"); setTimeout(() => el.remove(), 400); };
+  el.onclick = close; document.body.appendChild(el); setTimeout(close, 9000);
+}
+async function updNotice() {
+  const i = await updCheck(false); if (!i) return;
+  const once = (k, text) => { try { if (localStorage.getItem(k)) return; localStorage.setItem(k, "1"); } catch {} toast(text); };
+  if (i.pending) once("ja-upd-pending:" + i.pending, `Atelier 已更新到 v${i.pending} · 重启 Harness 后生效`);
+  else if (i.available && i.mode === "notify") once("ja-upd-avail:" + i.latest, `Atelier v${i.latest} 可以更新了 · 设置 › Atelier › Updates`);
+}
+const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? "刚刚" : m < 60 ? `${m} 分钟前` : m < 1440 ? `${Math.round(m / 60)} 小时前` : `${Math.round(m / 1440)} 天前`; };
+function UpdateSection({ s }) {
+  const i = upd.info;
+  React.useEffect(() => { if (!upd.info && !upd.busy) updCheck(false); }, []);
+  const mode = s.update || "auto";
+  const status = upd.busy ? "正在连接 GitHub…"
+    : upd.err ? "出错了：" + upd.err
+    : !i ? "尚未检查"
+    : i.pending ? `已下载 v${i.pending}，重启 Harness 后生效。`
+    : i.error ? `检查失败（${i.error}），稍后会自动重试。`
+    : i.available ? `GitHub 上有新版本 v${i.latest}。`
+    : `已是最新版本 · 检查于${ago(i.checkedAt)}`;
+  const canUpdate = i && i.available && !i.pending;
+  return h(React.Fragment, null,
+    h("h5", null, "Updates"),
+    h(Opt, { title: "Auto update", desc: mode === "auto" ? "启动后和每 12 小时从 GitHub 检查一次，有新版就自动下载，重启 Harness 后生效。" : mode === "notify" ? "只检查并提醒，由你手动点更新。" : "不自动检查，可以随时手动检查。" },
+      h("div", { className: "ja-seg" }, [["auto", "自动"], ["notify", "仅提醒"], ["off", "关闭"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": mode === k, onClick: () => setSettings({ update: k }) }, l)))),
+    h(Opt, { title: `Version · v${(i && i.current) || "…"}`, desc: status },
+      canUpdate ? h("button", { type: "button", className: "ja-btn ja-btn-ink", disabled: upd.busy, onClick: updRun }, `更新到 v${i.latest}`)
+        : h("button", { type: "button", className: "ja-btn", disabled: upd.busy, onClick: () => updCheck(true) }, "检查更新")));
+}
+
 let saveTimer = 0;
 function setSettings(patch) {
   store.settings = { ...store.settings, ...patch }; applyBodyFlags(); emit();
@@ -431,7 +485,7 @@ function AtelierSettings() {
   const setPrice = (m, i, n) => { const cur = priceOf(m, s).slice(); cur[i] = n; setSettings({ prices: { ...s.prices, [m]: cur } }); };
   const resetPrice = (m) => { const next = { ...s.prices }; delete next[m]; setSettings({ prices: next }); };
   return h("div", { className: "ja-root ja-set" },
-    h("header", null, h("div", null, h("span", { className: "ja-caps" }, "Atelier · v0.2.4"), h("h3", null, "The ", h("em", null, "atelier"), " settings"),
+    h("header", null, h("div", null, h("span", { className: "ja-caps" }, "Atelier · v" + ((upd.info && upd.info.current) || VERSION)), h("h3", null, "The ", h("em", null, "atelier"), " settings"),
       h("p", null, "纸与金的皮肤、鲸鱼首页、账本与上下文——全部在本机计算，不上传任何数据。")),
       h(BrandMark, { size: 44 })),
     h(Opt, { title: "Name", desc: "侧栏字标、首页问候里显示的名字。留空则自动读取账号名或系统用户名。" }, h(TxtIn, { value: s.name || "", placeholder: (() => { const a = accountName() || (st.usage && st.usage.user) || ""; return a ? "auto · " + a : "auto"; })(), onCommit: set("name") })),
@@ -462,7 +516,8 @@ function AtelierSettings() {
           h("td", { className: "ja-c" }, money(costOf(m, v, s), s)),
           h("td", null, custom ? h("button", { type: "button", className: "ja-link", onClick: () => resetPrice(m) }, "Reset") : null));
       }))),
-    h("p", { className: "ja-note" }, "价格为估算值：标注 est. 的模型请按你的实际账单改一下，改动会立即反映到账本与首页。"));
+    h("p", { className: "ja-note" }, "价格为估算值：标注 est. 的模型请按你的实际账单改一下，改动会立即反映到账本与首页。"),
+    h(UpdateSection, { s }));
 }
 
 /* ---------------- class-hash remapping ----------------
@@ -578,7 +633,8 @@ function apply(ctx) {
   ctx.effect(() => {
     const a = addStyle("ja-fonts", FONT_CSS), b = adaptiveStyle("ja-skin", SKIN_CSS), c = adaptiveStyle("ja-parts", PARTS_CSS);
     applyBodyFlags(); loadSettings();
-    return () => { a(); b(); c(); ["ja-skin", "ja-fonts", "ja-paper", "ja-motion"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
+    const nt = setTimeout(() => updNotice().catch(() => {}), 4000);
+    return () => { clearTimeout(nt); a(); b(); c(); ["ja-skin", "ja-fonts", "ja-paper", "ja-motion"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
   }, "jules-atelier: styles");
   ctx.effect(() => {
     try { return ctx.theme.overrideTokens(name, TOKENS); }
