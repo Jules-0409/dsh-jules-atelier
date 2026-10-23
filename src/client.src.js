@@ -123,7 +123,7 @@ const TOKENS = {
 
 
 /* ---------------- settings + pricing ---------------- */
-const DEFAULTS = { name: "", skin: true, fonts: true, paper: true, motion: true, hero: true, heat: true, icons: true, ledger: true, sideLedger: true, currency: "CNY", rate: 7.1, budget: 0, prices: {}, update: "auto", notes: true, timeOfDay: true };
+const DEFAULTS = { name: "", skin: true, fonts: true, paper: true, motion: true, hero: true, heat: true, icons: true, palette: "atelier", sea: true, ledger: true, sideLedger: true, currency: "CNY", rate: 7.1, budget: 0, prices: {}, update: "auto", notes: true, timeOfDay: true };
 // USD per 1M tokens: [uncached input, cache read, output]. Editable in Settings → Atelier.
 const PRICE_BOOK = [
   [/deepseek.*(flash|chat)/i, [0.3, 0.006, 1.2], "DeepSeek Flash"],
@@ -246,6 +246,7 @@ function applyBodyFlags() {
   b.classList.toggle("ja-paper", !!s.skin && !!s.paper);
   b.classList.toggle("ja-motion", !!s.skin && !!s.motion);
   syncIcons(!!s.skin && s.icons !== false);
+  syncPalette(); seaCheck();
 }
 function useStore() {
   const [, force] = React.useReducer((x) => x + 1, 0);
@@ -496,10 +497,13 @@ function AtelierSettings() {
       h(BrandMark, { size: 44 })),
     h(Opt, { title: "Name", desc: "侧栏字标、首页问候里显示的名字。留空则自动读取账号名或系统用户名。" }, h(TxtIn, { value: s.name || "", placeholder: (() => { const a = accountName() || (st.usage && st.usage.user) || ""; return a ? "auto · " + a : "auto"; })(), onCommit: set("name") })),
     h(Sec, { no: "I", en: "Appearance", zh: "外观" }),
+    h(Opt, { title: "Palette", desc: "纸与金：暖白纸色配金线；墨与青：冷调宣纸配青瓷色。浅色与深色模式各自适配。" },
+      h("div", { className: "ja-seg" }, [["atelier", "纸与金"], ["ink", "墨与青"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": (s.palette === "ink" ? "ink" : "atelier") === k, onClick: () => setSettings({ palette: k }) }, l)))),
     h(Opt, { title: "Atelier skin", desc: "纸色、金线、墨色按钮，覆盖侧栏、消息、输入框、弹窗与菜单。关闭后只保留配色。" }, h(Sw, { on: s.skin, onChange: set("skin"), label: "Atelier skin" })),
     h(Opt, { title: "Engraved icons", desc: "侧栏、输入框、消息操作栏的小图标换成手绘的细线版本，带一点金色点缀。" }, h(Sw, { on: s.icons !== false, onChange: set("icons"), label: "Engraved icons" })),
     h(Opt, { title: "Typography", desc: "正文 Manrope + 苹方，标题与数字 Cormorant Garamond。" }, h(Sw, { on: s.fonts, onChange: set("fonts"), label: "Typography" })),
     h(Opt, { title: "Paper grain", desc: "极淡的纸纹底。" }, h(Sw, { on: s.paper, onChange: set("paper"), label: "Paper grain" })),
+    h(Opt, { title: "Conversation sea", desc: "会话背景里一片字符画海面：浅色有日光与海鸥，深色有月与星；AI 工作时浪会大一些，偶尔有鲸鱼游过。" }, h(Sw, { on: s.sea !== false, onChange: set("sea"), label: "Conversation sea" })),
     h(Opt, { title: "Motion", desc: "消息浮现、按钮金光扫过、弹窗过渡。系统开启“减少动态效果”时自动停用。" }, h(Sw, { on: s.motion, onChange: set("motion"), label: "Motion" })),
     h(Sec, { no: "II", en: "Home", zh: "首页" }),
     h(Opt, { title: "Engraved whale", desc: "首页铜版鲸鱼：今天用得越多刻线越密，会话运行时会喷水。" }, h(Sw, { on: s.hero, onChange: set("hero"), label: "Whale" })),
@@ -567,14 +571,33 @@ function noteFacts(r, s) {
   // "latest" means latest in the evening; activity after midnight counts as the night before
   const lateKey = (ms) => { const d = new Date(ms); return (d.getHours() < 5 ? d.getHours() + 24 : d.getHours()) * 60 + d.getMinutes(); };
   const latest = ss.filter((x) => x.last).sort((a, b) => lateKey(b.last) - lateKey(a.last))[0];
-  return { sessions: ss.length, turns, tokens, cost, wsList, models, first, last, ranked, longest, dayTok, busiest, activeHours, latest };
+  const files = new Set(); let cmds = 0, looks = 0;
+  for (const x of ss) { const w = x.w || {}; for (const p of w.files || []) files.add(p); for (const [k, n] of Object.entries(w.tools || {})) { if (/^(bash|shell|run|exec|command|terminal|powershell)/i.test(k)) cmds += n; else if (/^web_/i.test(k)) looks += n; } }
+  const worked = ss.filter((x) => x.w && (x.w.asks.length || x.w.outs.length)).sort((a, b) => b.turns - a.turns || toks(b.by) - toks(a.by));
+  return { sessions: ss.length, turns, tokens, cost, wsList, models, first, last, ranked, longest, dayTok, busiest, activeHours, latest, files: files.size, cmds, looks, worked };
 }
+/* one readable line out of a chat message: drop code, tables and markdown, keep the first sentence or two */
+function headline(text, max) {
+  let t = String(text || "").replace(/```[\s\S]*?(```|$)/g, " ").split("\n").map((l) => l.trim()).filter((l) => l && !/^(\||[-*_]{3,}$|>)/.test(l));
+  t = t.map((l) => l.replace(/^#+\s*|^[-*+]\s+|^\d+[.)]\s+/, "").replace(/\*\*|__|`/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/^@\S+\s*/, "")).filter(Boolean);
+  let out = "";
+  for (const l of t) { out += (out ? " " : "") + l; if (out.length >= 24) break; }
+  const m = out.match(/^(.{12,}?[。！？!?；;])/); if (m && m[1].length <= max) out = m[1];
+  out = out.length > max ? out.slice(0, max - 1).replace(/[，,、：:\s]+$/, "") + "…" : out;
+  return out.replace(/\s*[：:]$/, "…");
+}
+const fileList = (files, cwd) => {
+  const names = files.map((p) => { const r = cwd && p.startsWith(cwd) ? p.slice(cwd.length).replace(/^[\\/]+/, "") : p; return r.split(/[\\/]/).pop(); });
+  const uniq = [...new Set(names)];
+  return uniq.slice(0, 3).join("、") + (files.length > 3 ? ` 等 ${files.length} 个文件` : "");
+};
 function lede(kind, day, f) {
   if (!f.sessions) return kind === "week" ? "这一周很安静，没有留下记录。" : "这一天很安静，没有留下记录。";
   const today = iso(new Date());
   if (kind === "week") {
     const n = Object.values(f.dayTok).filter((v) => v > 0).length;
     let t = `这一周有 ${n} 天在工作，开了 ${f.sessions} 个会话、聊了 ${f.turns} 轮`;
+    if (f.files) t += `，改了 ${f.files} 个文件`;
     if (f.busiest && n > 1) t += `；最忙的是${WEEK_ZH[new Date(f.busiest[0] + "T12:00:00").getDay()]}`;
     if (f.wsList[0] && f.wsList[0].name !== "—") t += `，心思多半在 ${f.wsList[0].name}`;
     t += "。";
@@ -583,6 +606,7 @@ function lede(kind, day, f) {
   }
   const who = day === today ? "今天" : day === addDays(today, -1) ? "昨天" : day >= addDays(today, -6) ? WEEK_ZH[new Date(day + "T12:00:00").getDay()] : "这一天";
   let t = `${who}开了 ${f.sessions} 个会话、聊了 ${f.turns} 轮`;
+  if (f.files) t += `，改了 ${f.files} 个文件`;
   if (f.wsList[0] && f.wsList[0].name !== "—") t += f.wsList.length > 1 ? `，大半时间在 ${f.wsList[0].name}` : `，都在 ${f.wsList[0].name}`;
   t += "；";
   if (f.first && f.last) t += `${hm(f.first)} 动笔，${day === today ? "到现在" : "最后停在 " + hm(f.last)}。`;
@@ -636,27 +660,30 @@ function NoteView({ note, onClose }) {
         h("p", { className: "ja-lede" }, lede(kind, day, f)),
         f.sessions ? h(React.Fragment, null,
           h("div", { className: "ja-figs" },
-            fig("Sessions", f.sessions), fig("Turns", f.turns), fig("Tokens", tk, tu),
-            kind === "week" ? fig("Days", Object.values(f.dayTok).filter((v) => v > 0).length, "/7") : fig("Hours", f.activeHours, "h"),
-            fig("Spent", money(f.cost, s))),
+            fig("Sessions", f.sessions), fig("Turns", f.turns), fig("Files", f.files), fig("Tokens", tk, tu), fig("Spent", money(f.cost, s))),
+          h("p", { className: "ja-facts" }, [
+            f.first ? `${kind === "week" ? WEEK_ZH[new Date(f.first).getDay()] + " " : ""}${hm(f.first)} 动笔` : "",
+            f.last ? `${kind === "week" ? WEEK_ZH[new Date(f.last).getDay()] + " " : ""}${hm(f.last)} 收笔` : "",
+            f.cmds ? `${f.cmds} 条命令` : "", f.looks ? `查了 ${f.looks} 次资料` : "",
+            d.streak > 1 ? `至今连续 ${d.streak} 天` : ""].filter(Boolean).join("  ·  ")),
+          f.worked.length ? h("section", null, h("h6", { className: "ja-caps" }, "What got done · 工作总结"),
+            h("ol", { className: "ja-done" }, f.worked.slice(0, kind === "week" ? 8 : 6).map((x) => {
+              const w = x.w, ask = w.asks[0] && headline(w.asks[0][1], 56), out = w.outs.length && headline(w.outs[w.outs.length - 1][1], 96);
+              const tn = Object.entries(w.tools || {}).reduce((a, [k, n]) => a + (/^(bash|shell|run|exec|command|terminal|powershell)/i.test(k) ? n : 0), 0);
+              const span = x.first ? (iso(new Date(x.first)) !== iso(new Date(x.last)) ? `${WEEK_ZH[new Date(x.first).getDay()]} ${hm(x.first)}–${WEEK_ZH[new Date(x.last).getDay()]} ${hm(x.last)}` : `${hm(x.first)}–${hm(x.last)}`) : "";
+              return h("li", { key: x.id },
+                h("div", { className: "ja-dh" }, h("b", null, x.title || "Untitled"), h("small", null, [base(x.cwd), span, `${x.turns} 轮`].filter(Boolean).join(" · "))),
+                ask ? h("p", null, h("i", null, "问"), ask) : null,
+                out ? h("p", null, h("i", null, "成"), out) : null,
+                w.files.length || tn ? h("p", { className: "ja-dim" }, h("i", null, "改"), [w.files.length ? fileList(w.files, x.cwd) : "", tn ? `${tn} 条命令` : ""].filter(Boolean).join(" · ")) : null);
+            }))) : null,
           h("div", { className: "ja-cols" },
-            h("section", null, h("h6", { className: "ja-caps" }, "Where the work went"),
-              h("ul", { className: "ja-ws" }, f.wsList.slice(0, 5).map((w) => h("li", { key: w.name }, h("span", null, w.name), h(HatchBar, { v: w.tokens, max: f.wsList[0].tokens }), h("small", null, `${w.sessions} 会话 · ${w.turns} 轮`))))),
             h("section", null, h("h6", { className: "ja-caps" }, kind === "week" ? "Day by day" : "Hour by hour"),
-              kind === "week" ? h(WeekBars, { from, dayTok: f.dayTok }) : h(HourStrip, { hours: rep.hours }))),
-          h("section", null, h("h6", { className: "ja-caps" }, "Sessions of note"),
-            h("ol", { className: "ja-sl" }, f.ranked.slice(0, 5).map((x) => h("li", { key: x.id },
-              h("b", null, x.title || "Untitled"),
-              h("small", null, [base(x.cwd), `${x.turns} 轮`, x.first ? (iso(new Date(x.first)) === iso(new Date(x.last)) ? `${hm(x.first)}–${hm(x.last)}` : `${WEEK_ZH[new Date(x.first).getDay()]} ${hm(x.first)} – ${WEEK_ZH[new Date(x.last).getDay()]} ${hm(x.last)}`) : "", fmt(bagTokens(x.by)) + " tok"].filter(Boolean).join(" · ")))))),
-          h("div", { className: "ja-cols" },
-            h("section", null, h("h6", { className: "ja-caps" }, "Of note"),
-              h("dl", { className: "ja-of" },
-                f.longest && f.longest.last > f.longest.first ? [h("dt", { key: 1 }, "最长的一次"), h("dd", { key: 2 }, `${f.longest.title || "Untitled"} · ${Math.max(1, Math.round((f.longest.last - f.longest.first) / 60000))} 分钟`)] : null,
-                f.latest ? [h("dt", { key: 3 }, "最晚"), h("dd", { key: 4 }, `${kind === "week" ? WEEK_ZH[new Date(f.latest.last).getDay()] + " " : ""}${hm(f.latest.last)}`)] : null,
-                f.first ? [h("dt", { key: 5 }, "最早"), h("dd", { key: 6 }, hm(f.first))] : null,
-                d.streak > 1 ? [h("dt", { key: 7 }, "至今连续"), h("dd", { key: 8 }, `${d.streak} 天`)] : null)),
-            h("section", null, h("h6", { className: "ja-caps" }, "Models"),
-              h("ul", { className: "ja-ws" }, f.models.slice(0, 4).map(([m, v]) => h("li", { key: m }, h("span", { title: m }, modelName(m)), h(HatchBar, { v, max: f.models[0][1] }), h("small", null, Math.round((v / (f.tokens || 1)) * 100) + "%"))))))) : null),
+              kind === "week" ? h(WeekBars, { from, dayTok: f.dayTok }) : h(HourStrip, { hours: rep.hours })),
+            h("section", null, h("h6", { className: "ja-caps" }, "Where & with whom"),
+              h("ul", { className: "ja-ws" },
+                f.wsList.slice(0, 3).map((w) => h("li", { key: "w" + w.name }, h("span", null, w.name), h(HatchBar, { v: w.tokens, max: f.wsList[0].tokens }), h("small", null, `${w.sessions} 会话`))),
+                f.models.slice(0, 3).map(([m, v]) => h("li", { key: "m" + m, className: "ja-mod" }, h("span", { title: m }, modelName(m)), h(HatchBar, { v, max: f.models[0][1] }), h("small", null, Math.round((v / (f.tokens || 1)) * 100) + "%"))))))) : null),
       h("footer", { className: "ja-nfoot" }, h("span", null, "Composed locally from your session logs"), h("span", null, "← → 翻页 · Esc 关闭")))));
 }
 const noteSeenKey = (n) => `ja-note-seen:${n.kind}:${n.day}`;
@@ -798,6 +825,204 @@ function syncIcons(on) {
   }
 }
 
+/* ---------------- second palette: 墨与青 (ink & celadon) ----------------
+ * Derived from the paper-and-gold palette: warm neutrals become cool rice paper,
+ * gold becomes celadon teal. State colours (error / warn / success / diff) stay put. */
+function inkColor(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = (mx - mn) / 255, l = (mx + mn) / 510;
+  let hue = 0;
+  if (mx !== mn) { const d = mx - mn; hue = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; hue = (hue * 60 + 360) % 360; }
+  if (hue < 12 || hue > 72) return [r, g, b];
+  const s = c === 0 ? 0 : c / (1 - Math.abs(2 * l - 1));
+  let nh, ns, nl = l;
+  if (c > 0.16) { nh = 178; ns = Math.min(0.42, s * 0.9); nl = l > 0.5 ? l : l * 0.9; }
+  else { nh = 200; ns = s * 0.28; }
+  const k = (n) => (n + nh / 30) % 12, a = ns * Math.min(nl, 1 - nl);
+  const f = (n) => Math.round(255 * (nl - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  return [f(0), f(8), f(4)];
+}
+const hex2 = (n) => n.toString(16).padStart(2, "0").toUpperCase();
+function inkify(text) {
+  return String(text)
+    .replace(/#([0-9a-fA-F]{6})\b/g, (all, hx) => { const v = parseInt(hx, 16); const [r, g, b] = inkColor(v >> 16, (v >> 8) & 255, v & 255); return "#" + hex2(r) + hex2(g) + hex2(b); })
+    .replace(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g, (all, r, g, b) => { const o = inkColor(+r, +g, +b); return (all.startsWith("rgba") ? "rgba(" : "rgb(") + o.join(","); })
+    .replace(/(--w-[a-z]+:)(\d+),(\d+),(\d+)/g, (all, k, r, g, b) => k + inkColor(+r, +g, +b).join(","))
+    .replace(".35  0 0 0 0 .27  0 0 0 0 .16", ".18  0 0 0 0 .26  0 0 0 0 .30")
+    .replace(".95  0 0 0 0 .88  0 0 0 0 .72", ".78  0 0 0 0 .90  0 0 0 0 .92");
+}
+const INK_TOKENS = Object.fromEntries(Object.entries(TOKENS).map(([k, v]) => [k, /warn|error|success|diff|danger/.test(k) ? v : { light: inkify(v.light), dark: inkify(v.dark) }]));
+const PALETTES = { atelier: { label: "纸与金", tokens: TOKENS, skin: SKIN_CSS, parts: PARTS_CSS }, ink: { label: "墨与青", tokens: INK_TOKENS, skin: inkify(SKIN_CSS), parts: inkify(PARTS_CSS) } };
+let CTX = null, palKey = null, palOff = null;
+function syncPalette() {
+  if (!CTX) return;
+  const k = store.settings.palette === "ink" ? "ink" : "atelier";
+  if (k === palKey) return;
+  const p = PALETTES[k];
+  if (palOff) palOff.all();
+  const b = adaptiveStyle("ja-skin", p.skin), c = adaptiveStyle("ja-parts", p.parts);
+  let t = () => {};
+  try { t = CTX.theme.overrideTokens(name, p.tokens) || (() => {}); } catch (e) { console.error("jules-atelier: palette", e); }
+  palKey = k; palOff = { all: () => { b(); c(); t(); } };
+  document.body.classList.toggle("ja-pal-ink", k === "ink");
+}
+function dropPalette() { if (palOff) palOff.all(); palOff = null; palKey = null; document.body && document.body.classList.remove("ja-pal-ink"); }
+
+/* ---------------- conversation sea ----------------
+ * An engraved seascape behind the conversation, set in the same character ramp
+ * as the home whale: a horizon with sun (light) or moon and stars (dark), banks of
+ * cloud, perspective swells with a glittering reflection path, and now and then
+ * the whale swimming through, trailing bubbles. While a turn runs the water picks
+ * up, the whale comes sooner and spouts. The scene dims behind the text column so
+ * reading is never disturbed. ~12 fps, paused when hidden. */
+const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function mountSea(host, colSel) {
+  const cv = document.createElement("canvas"); cv.className = "ja-sea"; cv.setAttribute("aria-hidden", "true");
+  host.prepend(cv);
+  const ctx = cv.getContext("2d"); if (!ctx) { cv.remove(); return () => {}; }
+  const FR = " .:-=+*#%@", DISC = " .:-=+*#%";
+  let W = 0, H = 0, CW = 6, CH = 11, cols = 0, rows = 0, ink = "#2E2A24", gold = "#A48659", dark = false, fish = null, mono = "monospace";
+  let colL = -1, colR = -1, stars = [], gulls = [], bubbles = [], spray = [];
+  let whale = null, nextWhale = performance.now() + 5000 + Math.random() * 9000, energy = 0, busy = false, raf = 0, dead = false, last = 0, t0 = performance.now(), lastBub = 0, lastSpray = 0;
+  const fishPath = new Path2D(FISH);
+  const hash = (x, y, k) => { let v = (x * 374761393 + y * 668265263 + k * 1442695041) | 0; v = Math.imul(v ^ (v >>> 13), 1274126177); return ((v ^ (v >>> 16)) >>> 0) / 4294967296; };
+  const sm = (a, b, v) => { v = Math.max(0, Math.min(1, (v - a) / (b - a))); return v * v * (3 - 2 * v); };
+  function measureCol() {
+    const c = colSel && host.querySelector(colSel); colL = colR = -1;
+    if (c) { const r = c.getBoundingClientRect(), R = host.getBoundingClientRect(); if (r.width > 40) { colL = (r.left - R.left) / CW; colR = (r.right - R.left) / CW; } }
+  }
+  function build() {
+    const DPR = Math.min(2, devicePixelRatio || 1); W = host.clientWidth; H = host.clientHeight; if (!W || !H) return;
+    cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const cs = getComputedStyle(document.body); ink = cs.getPropertyValue("--ja-ink").trim() || ink; gold = cs.getPropertyValue("--ja-gold").trim() || gold;
+    dark = document.body.hasAttribute("data-ds-dark-theme"); mono = cs.getPropertyValue("--ja-mono").trim() || mono;
+    ctx.font = `600 10px ${mono}`; ctx.textBaseline = "top"; CW = ctx.measureText("M").width || 6; CH = 11;
+    cols = Math.ceil(W / CW) + 1; rows = Math.ceil(H / CH) + 1; measureCol();
+    stars = []; const hz = Math.round(rows * 0.5);
+    for (let y = 1; y < hz - 2; y++) for (let x = 0; x < cols; x++) { const r = hash(x, y, 7); if (r < 0.006) stars.push([x, y, hash(x, y, 9) * 6.28, hash(x, y, 11)]); }
+    gulls = [0, 1, 2].map((i) => ({ x: hash(i, 3, 5) * cols, y: 3 + hash(i, 4, 5) * (hz * 0.45), v: 0.6 + hash(i, 6, 5) * 0.5, ph: hash(i, 8, 5) * 6 }));
+    const fc = Math.max(26, Math.min(44, Math.round(cols * 0.2))), fr = Math.max(9, Math.round(fc * (17.04 / 23.16) * CW / CH));
+    const K = 4, oc = document.createElement("canvas"); oc.width = fc * K; oc.height = fr * K;
+    const ox = oc.getContext("2d", { willReadFrequently: true }); ox.scale(oc.width / 23.16, oc.height / 17.04); ox.fill(fishPath);
+    const px = ox.getImageData(0, 0, oc.width, oc.height).data, grid = [];
+    for (let y = 0; y < fr; y++) { const row = []; for (let x = 0; x < fc; x++) { let a = 0; for (let j = 0; j < K; j++) for (let i = 0; i < K; i++) a += px[((y * K + j) * oc.width + x * K + i) * 4 + 3]; row.push(a / (K * K * 255)); } grid.push(row); }
+    // the logo whale faces left; its head is the leftmost solid column
+    fish = { grid, fc, fr };
+  }
+  // ops are bucketed by colour and alpha level so the canvas state changes only a few dozen times a frame
+  const L = 10; let bk = [];
+  const put = (gold1, a, x, y, ch) => { if (a <= 0.004) return; const lv = Math.min(L - 1, Math.round(a * (L - 1) / 0.7)); if (!lv) return; const k = (gold1 ? L : 0) + lv; (bk[k] ||= []).push(x * CW, y * CH, ch); };
+  function dim(x) { if (colL < 0) return 1; const d = Math.min(x - colL, colR - x); return d < -3 ? 1 : d > 3 ? 0.24 : 1 - 0.76 * sm(-3, 3, d); }
+  function draw(now) {
+    if (!W || !H) return;
+    const t = (now - t0) / 1000; energy += ((busy ? 1 : 0) - energy) * 0.05;
+    const sp = 1 + energy * 0.9, amp = 1 + energy * 0.5, A = dark ? 1.05 : 0.95;
+    bk = [];
+    const hz = Math.round(rows * 0.5), mx = Math.round(cols * 0.84), my = Math.round(hz * 0.56), Rr = Math.max(3, Math.round(rows * 0.095)), Rx = Rr * CH / CW;
+    // sky: stars (night) or gulls (day)
+    if (dark) for (const [x, y, ph, b] of stars) { const tw = 0.5 + 0.5 * Math.sin(t * (0.8 + b) + ph); put(false, A * (0.18 + 0.3 * tw) * dim(x), x, y, b > 0.86 ? "+" : b > 0.6 ? "*" : "·"); }
+    else for (const g of gulls) { g.x += g.v / 12; if (g.x > cols + 4) g.x = -4; const fl = Math.sin(t * 3 + g.ph) > 0; put(false, A * 0.5 * dim(g.x), Math.round(g.x), Math.round(g.y + Math.sin(t * 0.5 + g.ph)), fl ? "v" : "~"); }
+    // sun / moon disc with an engraved halo
+    for (let y = my - Rr - 3; y <= my + Rr + 3; y++) for (let x = Math.floor(mx - Rx - 6); x <= mx + Rx + 6; x++) {
+      const dx = (x - mx) / Rx, dy = (y - my) / Rr, d = Math.hypot(dx, dy);
+      if (d < 1) {
+        if (dark) { let v = 1 - d * 0.35; const c = Math.hypot(dx - 0.42, dy + 0.18); if (c < 0.92) v *= sm(0.62, 0.92, c) * 0.85;
+          v *= 0.82 + 0.18 * hash(x, y, 3); const ch = DISC[Math.max(0, Math.min(DISC.length - 1, Math.floor(v * DISC.length)))];
+          if (ch !== " ") put(true, A * 0.9 * v * dim(x), x, y, ch); }
+        else { // engraved sun: horizontal strokes, the lower half opening into wider gaps
+          const k = my + Rr - y, gap = dy > 0.05 && (k % (dy > 0.55 ? 2 : 3) === 0);
+          if (!gap) put(true, A * (0.9 - 0.25 * Math.max(0, dy)) * dim(x), x, y, d > 0.9 ? (dx < 0 ? "(" : ")") : dy < -0.2 ? "=" : "-"); }
+      } else if (d < 1.9) {
+        const ring = Math.abs(d - 1.35), ang = Math.atan2(dy, dx);
+        if (ring < 0.1 && Math.sin(ang * 14 + t * 0.3) > 0.2) put(true, A * 0.42 * dim(x), x, y, "·");
+        else if (!dark && ring > 0.3 && d < 1.85 && Math.sin(ang * 9 - t * 0.12) > 0.9) put(true, A * 0.34 * dim(x), x, y, Math.abs(Math.cos(ang)) > 0.7 ? "-" : Math.abs(Math.sin(ang)) > 0.7 ? "|" : Math.cos(ang) * Math.sin(ang) > 0 ? "\\" : "/");
+      }
+    }
+    // cloud banks drifting above the horizon
+    for (let y = hz - 9; y < hz - 1; y++) { if (y < 0) continue; const band = sm(hz - 10, hz - 6, y) * (1 - sm(hz - 3, hz - 1, y));
+      for (let x = 0; x < cols; x++) { const n = Math.sin(x * 0.045 + t * 0.05 + y * 0.7) + Math.sin(x * 0.11 - t * 0.03 + y * 1.3) * 0.6 + Math.sin(x * 0.017 + y * 0.2) * 0.8;
+        if (n > 1.05) put(false, A * 0.3 * band * Math.min(1, (n - 1.05) * 2) * dim(x), x, y, n > 1.6 ? "=" : "-"); } }
+    for (let y = 3; y < hz - 12; y += 1) { const band = Math.sin(y * 0.9) * 0.5 + 0.5; if (band < 0.6) continue;
+      for (let x = 0; x < cols; x++) { const n = Math.sin(x * 0.03 - t * 0.04 + y * 2.1) + Math.sin(x * 0.083 + t * 0.025 + y) * 0.5;
+        if (n > 1.25) put(false, A * 0.16 * (n - 1.25) * 2.5 * dim(x), x, y, n > 1.4 ? "-" : "."); } }
+    // horizon
+    for (let x = 0; x < cols; x++) if (hash(x, 1, 1) > 0.18) put(false, A * 0.42 * dim(x), x, hz, "_");
+    // swells in perspective + reflection path
+    const surf = new Float32Array(cols);
+    for (let y = hz + 1; y < rows; y++) {
+      const yy = (y - hz) / Math.max(1, rows - hz), p = 0.14 + 0.86 * yy, aRow = A * (0.28 + 0.72 * yy);
+      const rw = Rx * (0.5 + 2.2 * yy);
+      for (let x = 0; x < cols; x++) {
+        const X = (x - cols / 2) / p;
+        const hgt = amp * (0.55 * Math.sin(X * 0.085 + t * 0.62 * sp + y * 0.95) + 0.32 * Math.sin(X * 0.21 - t * 0.95 * sp + y * 1.9) + 0.45 * Math.sin(X * 0.037 + t * 0.21 + y * 0.31));
+        if (y === rows - 1) surf[x] = hgt;
+        const dm = dim(x), dx = Math.abs(x - mx);
+        if (dx < rw) { const g = (1 - dx / rw), sh = Math.sin(x * 1.7 + y * 3.1 + t * 2.4 * sp) + hgt; if (sh > 0.55) { put(true, A * 0.85 * g * (0.45 + 0.55 * yy) * dm, x, y, sh > 1.25 ? "=" : "-"); continue; } }
+        let ch = null, a = aRow;
+        if (hgt > 1.0) { ch = hgt > 1.25 ? "^" : "~"; a *= 1.0; }
+        else if (hgt > 0.55) ch = "~";
+        else if (hgt > 0.12) ch = "-";
+        else if (hgt > -0.25 && yy > 0.25 && hash(x, y, Math.floor(t * 2)) > 0.55) { ch = "."; a *= 0.6; }
+        if (ch) put(hgt > 1.2 && yy > 0.3, a * (hgt > 1.0 ? 0.8 : hgt > 0.55 ? 0.55 : 0.3) * dm, x, y, ch);
+      }
+    }
+    // the whale
+    if (!whale && fish && now > nextWhale) {
+      const dir = Math.random() < 0.5 ? -1 : 1, lo = hz + 3, hi = Math.max(lo + 1, rows - fish.fr - 2);
+      whale = { dir, x: dir > 0 ? -fish.fc - 2 : cols + 2, y: lo + Math.random() * (hi - lo), v: 3 + Math.random() * 1.6, ph: Math.random() * 6 };
+    }
+    if (whale) {
+      whale.x += whale.dir * whale.v * (1 + energy * 0.5) / 12;
+      const bob = Math.sin(t * 0.8 + whale.ph) * 1.1, wx = Math.round(whale.x);
+      for (let i = 0; i < fish.fc; i++) {
+        const src = whale.dir > 0 ? fish.fc - 1 - i : i, tail = src / fish.fc; // 0 at the head, 1 at the tail
+        const und = Math.sin(t * 2.6 - tail * 3.2) * 0.9 * tail * tail;
+        for (let j = 0; j < fish.fr; j++) {
+          const a = fish.grid[j][src]; if (a < 0.08) continue;
+          const X = wx + i, Y = Math.round(whale.y + bob + j + und); if (X < 0 || X >= cols || Y >= rows || Y <= hz) continue;
+          const lit = a * (0.7 + 0.3 * Math.sin(i * 0.45 + j * 0.8 + t * 1.4)) * (1 - 0.35 * (j / fish.fr));
+          put(true, A * (0.38 + 0.45 * a) * (0.55 + 0.45 * dim(X)), X, Y, FR[Math.max(1, Math.min(FR.length - 1, Math.floor(lit * FR.length)))]);
+        }
+      }
+      const headX = whale.dir > 0 ? wx + fish.fc - 3 : wx + 3, topY = whale.y + bob;
+      if (now - lastBub > (busy ? 700 : 1600)) { lastBub = now; bubbles.push({ x: headX + (Math.random() - 0.5) * 4, y: topY + 1, v: 1.4 + Math.random() }); }
+      if (busy && now - lastSpray > 110) { lastSpray = now; for (let k = 0; k < 3; k++) spray.push({ x: headX + whale.dir * 2 + (Math.random() - 0.5) * 2, y: topY - 1, vx: (Math.random() - 0.5) * 1.6, vy: -(2.8 + Math.random() * 2.2), life: 1 }); }
+      if (whale.x < -fish.fc - 4 || whale.x > cols + 4) { whale = null; nextWhale = now + (busy ? 4000 : 26000) + Math.random() * (busy ? 8000 : 40000); }
+    } else if (busy && nextWhale - now > 9000) nextWhale = now + 2000 + Math.random() * 4000;
+    bubbles = bubbles.filter((b) => { b.y -= b.v / 12; const X = Math.round(b.x + Math.sin(b.y * 0.8) * 0.8), Y = Math.round(b.y); if (Y <= hz) return false; put(false, A * 0.5 * dim(X), X, Y, b.y - hz > 8 ? "o" : b.y - hz > 3 ? "°" : "."); return true; });
+    spray = spray.filter((s) => { s.x += s.vx / 12; s.y += s.vy / 12; s.vy += 0.5; s.life -= 0.03; if (s.life <= 0) return false; const X = Math.round(s.x), Y = Math.round(s.y); put(true, A * 0.55 * s.life * dim(X), X, Y, s.vy < 0 ? "'" : "."); return true; });
+    // paint
+    ctx.clearRect(0, 0, W, H); ctx.font = `600 10px ${mono}`;
+    for (let k = 0; k < bk.length; k++) { const list = bk[k]; if (!list) continue;
+      ctx.fillStyle = k >= L ? gold : ink; ctx.globalAlpha = ((k % L) / (L - 1)) * 0.7;
+      for (let i = 0; i < list.length; i += 3) ctx.fillText(list[i + 2], list[i], list[i + 1]); }
+    ctx.globalAlpha = 1;
+  }
+  const sel = remap("[class*=JXrxFq_markBusy], svg[class*=_spinnerMotion_]", hashMap());
+  const pollBusy = () => { try { busy = !!host.querySelector(sel) || !!document.querySelector("[class*=_indicator_] [class*=_dots_]"); } catch { busy = false; } measureCol(); };
+  const ro = new ResizeObserver(() => { build(); draw(performance.now()); }); ro.observe(host);
+  const mo = new MutationObserver(() => { build(); }); mo.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "class"] });
+  build(); pollBusy(); const bt = setInterval(pollBusy, 1000);
+  if (reduceMotion()) draw(t0 + 6000);
+  else { const loop = (now) => { if (dead) return; if (!document.hidden && now - last >= 80) { last = now; draw(now); } raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); }
+  return () => { dead = true; cancelAnimationFrame(raf); clearInterval(bt); ro.disconnect(); mo.disconnect(); cv.remove(); };
+}
+let seaHost = null, seaOff = null, seaMo = null, seaT = 0;
+function seaCheck() {
+  const s = store.settings, on = !!s.skin && s.sea !== false;
+  let host = null;
+  if (on) { const m = hashMap(); host = document.querySelector(remap("[class*=ST7X_W_body]", m)); if (host && !host.querySelector(remap("[class*=icaHSq_root]", m))) host = null; }
+  if (host === seaHost && (!host || host.querySelector(":scope > .ja-sea"))) return;
+  if (seaOff) seaOff(); seaOff = null; seaHost = host;
+  if (host) seaOff = mountSea(host, remap("[class*=icaHSq_column]", hashMap()));
+}
+function startSea() {
+  if (seaMo) return;
+  seaMo = new MutationObserver(() => { if (!seaT) seaT = setTimeout(() => { seaT = 0; seaCheck(); }, 400); });
+  seaMo.observe(document.body, { childList: true, subtree: true });
+  seaCheck();
+}
+function stopSea() { if (seaMo) seaMo.disconnect(); seaMo = null; clearTimeout(seaT); seaT = 0; if (seaOff) seaOff(); seaOff = null; seaHost = null; }
+
 /* ---------------- plugin ---------------- */
 function addStyle(id, text) {
   let el = document.getElementById(id);
@@ -807,15 +1032,11 @@ function addStyle(id, text) {
 }
 function apply(ctx) {
   ctx.effect(() => {
-    const a = addStyle("ja-fonts", FONT_CSS), b = adaptiveStyle("ja-skin", SKIN_CSS), c = adaptiveStyle("ja-parts", PARTS_CSS);
-    applyBodyFlags(); loadSettings();
+    CTX = ctx; const a = addStyle("ja-fonts", FONT_CSS);
+    syncPalette(); applyBodyFlags(); loadSettings(); startSea();
     const nt = setTimeout(() => updNotice().catch(() => {}), 4000);
-    return () => { clearTimeout(nt); a(); b(); c(); ["ja-skin", "ja-fonts", "ja-paper", "ja-motion"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
+    return () => { clearTimeout(nt); a(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
   }, "jules-atelier: styles");
-  ctx.effect(() => {
-    try { return ctx.theme.overrideTokens(name, TOKENS); }
-    catch (e) { console.error("jules-atelier: theme override failed", e); return () => {}; }
-  }, "jules-atelier: palette");
   const reg = (slot, opts, comp) => ctx.slots.inject(slot, () => ctx.slots.register({ name: slot, ...opts }, comp));
   reg("conversation.hero.brand.mark", { priority: -10 }, HeroMark);
   reg("sidebar.brand.mark", { priority: -10 }, BrandMark);
