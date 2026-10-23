@@ -123,7 +123,7 @@ const TOKENS = {
 
 
 /* ---------------- settings + pricing ---------------- */
-const DEFAULTS = { name: "", skin: true, fonts: true, paper: true, motion: true, hero: true, heat: true, icons: true, ledger: true, sideLedger: true, currency: "CNY", rate: 7.1, budget: 0, prices: {}, update: "auto" };
+const DEFAULTS = { name: "", skin: true, fonts: true, paper: true, motion: true, hero: true, heat: true, icons: true, ledger: true, sideLedger: true, currency: "CNY", rate: 7.1, budget: 0, prices: {}, update: "auto", notes: true, timeOfDay: true };
 // USD per 1M tokens: [uncached input, cache read, output]. Editable in Settings → Atelier.
 const PRICE_BOOK = [
   [/deepseek.*(flash|chat)/i, [0.3, 0.006, 1.2], "DeepSeek Flash"],
@@ -164,7 +164,7 @@ const emit = () => subs.forEach((f) => f());
 let timer = 0;
 async function api(ep, payload) {
   const post = ep === "settings/set";
-  const url = ep === "usage" ? "api/jules-atelier.usage" + (payload && payload.fresh ? "?fresh=1" : "") : "api/jules-atelier.settings";
+  const url = ep === "usage" ? "api/jules-atelier.usage?tz=" + new Date().getTimezoneOffset() + (payload && payload.fresh ? "&fresh=1" : "") : "api/jules-atelier.settings";
   const r = await fetch(url, { credentials: "same-origin", cache: "no-store", ...(post ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload.value) } : {}) });
   const res = r.ok ? await r.json().catch(() => null) : null;
   if (!res || !res.ok) throw new Error((res && res.error) || `HTTP ${r.status}`);
@@ -313,7 +313,7 @@ function greeting() {
   if (hr < 5) return ["Good night", "夜深了"]; if (hr < 12) return ["Good morning", "早上好"];
   if (hr < 18) return ["Good afternoon", "下午好"]; return ["Good evening", "晚上好"];
 }
-function Heat({ d, s }) {
+function Heat({ d, s, onDay }) {
   const gridRef = React.useRef(null), [weeks, setWeeks] = React.useState(18);
   React.useLayoutEffect(() => {
     const el = gridRef.current; if (!el || typeof ResizeObserver === "undefined") return;
@@ -326,7 +326,7 @@ function Heat({ d, s }) {
   for (let i = 0; i < weeks * 7; i++) {
     const day = new Date(start); day.setDate(start.getDate() + i);
     const k = iso(day), v = d.days[k] || 0, l = lv(v), future = day > end;
-    cells.push(h("i", { key: k, title: `${k} · ${fmt(v)} tokens · ${money(d.dayCost[k] || 0, s)}`, style: { background: l ? `var(--h${l})` : undefined, opacity: future ? 0 : 1 } }));
+    cells.push(h("i", { key: k, title: `${k} · ${fmt(v)} tokens · ${money(d.dayCost[k] || 0, s)}${v && onDay ? " · 点击看日报" : ""}`, className: v && onDay ? "ja-on" : undefined, onClick: v && onDay ? () => onDay(k) : undefined, style: { background: l ? `var(--h${l})` : undefined, opacity: future ? 0 : 1 } }));
   }
   const stat = (label, n, unit, cls) => h("div", { key: label }, h("small", { className: "ja-caps" }, label), h("b", { className: cls }, n, unit ? h("u", null, unit) : null));
   const [t1, t2] = split(d.total), [ts, tv] = money(d.todayCost, s, "parts"), [ms, mv] = money(d.monthCost, s, "parts");
@@ -343,8 +343,11 @@ function HeroMark() {
   const busy = Math.min(1, d.today / (d.avg || 1));
   dataRef.current.gap = 18 - 12 * busy; dataRef.current.running = d.running;
   const showPlate = s.hero !== false;
+  const now = new Date(), occ = occasion(now), phase = (() => { try { return localStorage.getItem("ja-phase"); } catch { return null; } })() || phaseOf(now.getHours());
+  dataRef.current.phase = s.timeOfDay === false ? "day" : phase; dataRef.current.full = !!(occ && occ[2] === "moon");
   React.useEffect(() => showPlate ? mountWhale(plateRef.current, cvRef.current, dataRef.current) : undefined, [showPlate]);
-  const now = new Date(), [en] = greeting();
+  const [note, setNote] = React.useState(null);
+  const [en] = occ || greeting();
   const first = d.first ? new Date(d.first) : now;
   return h("div", { className: "ja-root ja-hero" },
     h("div", { className: "ja-dl" },
@@ -353,9 +356,11 @@ function HeroMark() {
       h("span", { className: "ja-caps" }, `Day ${d.dayNo} · since ${MONTHS[first.getMonth()]} ${first.getDate()}`)),
     showPlate ? h("div", { className: "ja-plate", ref: plateRef, title: "移动鼠标打光 · 点击喷水" },
       h("canvas", { ref: cvRef, "aria-label": "ASCII whale" }),
-      h("span", { className: "ja-pc ja-tl" }, "Plate ", h("b", null, "XII"))) : null,
-    h("p", { className: "ja-line" }, `${en}, ${displayName(st)} — `, h("em", null, "one piece at a time.")),
-    u && s.heat !== false ? h(Heat, { d, s }) : null);
+      h("span", { className: "ja-pc ja-tl" }, "Plate ", h("b", null, "XII"), s.timeOfDay === false ? null : " · " + { dawn: "Dawn", day: "Noon", dusk: "Dusk", night: "Nocturne" }[phase])) : null,
+    h("p", { className: "ja-line" }, `${en}, ${displayName(st)} — `, h("em", null, occ ? occ[1] + "." : "one piece at a time.")),
+    u && s.notes !== false ? h(NoteCard, { d, s, onOpen: setNote }) : null,
+    u && s.heat !== false ? h(Heat, { d, s, onDay: s.notes !== false ? (k) => setNote({ kind: "day", day: k }) : null }) : null,
+    note ? h(NoteView, { note, onClose: () => setNote(null) }) : null);
 }
 /* Display name: Settings → Atelier → Name, else the signed-in account shown in the
  * sidebar footer, else the OS user name reported by the host. */
@@ -497,6 +502,8 @@ function AtelierSettings() {
     h(Opt, { title: "Motion", desc: "消息浮现、按钮金光扫过、弹窗过渡。系统开启“减少动态效果”时自动停用。" }, h(Sw, { on: s.motion, onChange: set("motion"), label: "Motion" })),
     h("h5", null, "Home"),
     h(Opt, { title: "Engraved whale", desc: "首页铜版鲸鱼：今天用得越多刻线越密，会话运行时会喷水。" }, h(Sw, { on: s.hero, onChange: set("hero"), label: "Whale" })),
+    h(Opt, { title: "Time of day", desc: "首页铜版随时间变化：清晨薄雾、白天日轮、傍晚暖金、深夜星点和弯月；节日会换一句问候。" }, h(Sw, { on: s.timeOfDay !== false, onChange: set("timeOfDay"), label: "Time of day" })),
+    h(Opt, { title: "Daily & weekly notes", desc: "首页出现「昨日小记」，周一换成「上周小记」；点热力图的任意一天也能翻看那天的日报。" }, h(Sw, { on: s.notes !== false, onChange: set("notes"), label: "Notes" })),
     h(Opt, { title: "Token heatmap", desc: "铺满宽度的每日用量热力图，加上今日 / 本月费用。" }, h(Sw, { on: s.heat, onChange: set("heat"), label: "Heatmap" })),
     h("h5", null, "Ledger"),
     h(Opt, { title: "Session ledger", desc: "输入框下方显示本会话费用，点开看分项、模型与上下文占用。" }, h(Sw, { on: s.ledger, onChange: set("ledger"), label: "Session ledger" })),
@@ -519,6 +526,170 @@ function AtelierSettings() {
     h("p", { className: "ja-note" }, "价格为估算值：标注 est. 的模型请按你的实际账单改一下，改动会立即反映到账本与首页。"),
     h(UpdateSection, { s }));
 }
+
+/* ---------------- daily & weekly notes ----------------
+ * A small "gazette" composed from the host's report endpoint: yesterday's note on the
+ * home page (last week's on Mondays), a full page with history navigation, and
+ * heatmap cells that open the note for that day. */
+const notesCache = new Map();
+async function fetchReport(from, to) {
+  const k = from + ":" + to, hit = notesCache.get(k);
+  if (hit && Date.now() - hit.at < 60000) return hit.v;
+  const r = await fetch(`api/jules-atelier.report?from=${from}&to=${to}&tz=${new Date().getTimezoneOffset()}`, { credentials: "same-origin", cache: "no-store" });
+  const res = await r.json().catch(() => null);
+  if (!res || !res.ok) throw new Error((res && res.error) || `HTTP ${r.status}`);
+  notesCache.set(k, { at: Date.now(), v: res.value });
+  return res.value;
+}
+const addDays = (k, n) => { const d = new Date(k + "T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
+const monday = (k) => { const d = new Date(k + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
+const span = (kind, day) => kind === "week" ? [monday(day), addDays(monday(day), 6)] : [day, day];
+const WEEK_ZH = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+const hm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const base = (p) => (p || "").split(/[\\/]/).filter(Boolean).pop() || "—";
+const modelName = (m) => { const l = bookPrice(m).label; return /est\.|Unlisted/.test(l) ? m : l; };
+const late = (ms) => { const h = new Date(ms).getHours(); return h >= 23 || h < 4; };
+function noteFacts(r, s) {
+  const ss = r.sessions, toks = (b) => bagTokens(b);
+  const turns = ss.reduce((a, x) => a + x.turns, 0), tokens = toks(r.models), cost = bagCost(r.models, s);
+  const ws = {}; for (const x of ss) { const k = base(x.cwd); const w = (ws[k] ||= { name: k, tokens: 0, sessions: 0, turns: 0 }); w.tokens += toks(x.by); w.sessions++; w.turns += x.turns; }
+  const wsList = Object.values(ws).sort((a, b) => b.tokens - a.tokens || b.turns - a.turns);
+  const models = Object.entries(r.models).map(([m, v]) => [m, toks({ m: v })]).sort((a, b) => b[1] - a[1]);
+  const first = ss.reduce((a, x) => (x.first && (!a || x.first < a) ? x.first : a), 0), last = ss.reduce((a, x) => Math.max(a, x.last || 0), 0);
+  const ranked = ss.slice().sort((a, b) => toks(b.by) - toks(a.by) || b.turns - a.turns);
+  const longest = ss.slice().sort((a, b) => (b.last - b.first) - (a.last - a.first))[0];
+  const dayTok = Object.fromEntries(Object.entries(r.days).map(([k, b]) => [k, toks(b)]));
+  const busiest = Object.entries(dayTok).sort((a, b) => b[1] - a[1])[0];
+  const activeHours = r.hours.filter((x) => x > 0).length;
+  // "latest" means latest in the evening; activity after midnight counts as the night before
+  const lateKey = (ms) => { const d = new Date(ms); return (d.getHours() < 5 ? d.getHours() + 24 : d.getHours()) * 60 + d.getMinutes(); };
+  const latest = ss.filter((x) => x.last).sort((a, b) => lateKey(b.last) - lateKey(a.last))[0];
+  return { sessions: ss.length, turns, tokens, cost, wsList, models, first, last, ranked, longest, dayTok, busiest, activeHours, latest };
+}
+function lede(kind, day, f) {
+  if (!f.sessions) return kind === "week" ? "这一周很安静，没有留下记录。" : "这一天很安静，没有留下记录。";
+  const today = iso(new Date());
+  if (kind === "week") {
+    const n = Object.values(f.dayTok).filter((v) => v > 0).length;
+    let t = `这一周有 ${n} 天在工作，开了 ${f.sessions} 个会话、聊了 ${f.turns} 轮`;
+    if (f.busiest && n > 1) t += `；最忙的是${WEEK_ZH[new Date(f.busiest[0] + "T12:00:00").getDay()]}`;
+    if (f.wsList[0] && f.wsList[0].name !== "—") t += `，心思多半在 ${f.wsList[0].name}`;
+    t += "。";
+    if (f.latest && late(f.latest.last)) t += `最晚的一次停在${WEEK_ZH[new Date(f.latest.last).getDay()]} ${hm(f.latest.last)}。`;
+    return t;
+  }
+  const who = day === today ? "今天" : day === addDays(today, -1) ? "昨天" : day >= addDays(today, -6) ? WEEK_ZH[new Date(day + "T12:00:00").getDay()] : "这一天";
+  let t = `${who}开了 ${f.sessions} 个会话、聊了 ${f.turns} 轮`;
+  if (f.wsList[0] && f.wsList[0].name !== "—") t += f.wsList.length > 1 ? `，大半时间在 ${f.wsList[0].name}` : `，都在 ${f.wsList[0].name}`;
+  t += "；";
+  if (f.first && f.last) t += `${hm(f.first)} 动笔，${day === today ? "到现在" : "最后停在 " + hm(f.last)}。`;
+  if (f.last && late(f.last) && day !== today) t += "又是一个晚睡的夜。";
+  else if (f.models[0]) t += `主力是 ${modelName(f.models[0][0])}。`;
+  return t;
+}
+function dateTitle(kind, day) {
+  const d = new Date(day + "T12:00:00");
+  if (kind === "week") { const [a, b] = span("week", day), A = new Date(a + "T12:00:00"), B = new Date(b + "T12:00:00"); return `${MONTHS[A.getMonth()]} ${A.getDate()} – ${A.getMonth() === B.getMonth() ? "" : MONTHS[B.getMonth()] + " "}${B.getDate()}`; }
+  return `${WEEK[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+function HatchBar({ v, max }) { return h("i", { className: "ja-hb" }, h("b", { style: { width: `${Math.max(2, (v / (max || 1)) * 100)}%` } })); }
+function HourStrip({ hours }) {
+  const max = Math.max(1, ...hours);
+  return h("div", { className: "ja-hours" },
+    h("div", { className: "ja-hcols" }, hours.map((v, i) => h("i", { key: i, title: `${i}:00 · ${v} 次调用`, style: { height: `${v ? Math.max(8, (v / max) * 100) : 0}%` } }))),
+    h("div", { className: "ja-hlab" }, ["0", "6", "12", "18", "24"].map((x) => h("span", { key: x }, x))));
+}
+function WeekBars({ from, dayTok }) {
+  const keys = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(from, i)), max = Math.max(1, ...keys.map((k) => dayTok[k] || 0));
+  return h("div", { className: "ja-wbars" }, keys.map((k) => h("div", { key: k, title: `${k} · ${fmt(dayTok[k] || 0)} tokens` },
+    h("span", null, h("i", { style: { height: `${dayTok[k] ? Math.max(6, (dayTok[k] / max) * 100) : 0}%` } })),
+    h("small", null, WEEK_ZH[new Date(k + "T12:00:00").getDay()].slice(1)))));
+}
+function NoteView({ note, onClose }) {
+  const st = useStore(), s = st.settings, d = derive(st.usage, s);
+  const [kind, setKind] = React.useState(note.kind), [day, setDay] = React.useState(note.day);
+  const [rep, setRep] = React.useState(null), [err, setErr] = React.useState("");
+  const [from, to] = span(kind, day), today = iso(new Date());
+  React.useEffect(() => { let on = true; setErr(""); fetchReport(from, to).then((v) => on && setRep(v), (e) => on && setErr(String(e.message || e))); return () => { on = false; }; }, [from, to]);
+  React.useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); if (e.key === "ArrowLeft") step(-1); if (e.key === "ArrowRight") step(1); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); });
+  const step = (n) => { const next = addDays(day, n * (kind === "week" ? 7 : 1)); if (span(kind, next)[0] <= today) setDay(next > today ? today : next); };
+  const ready = rep && rep.from === from && rep.to === to, f = ready ? noteFacts(rep, s) : null;
+  const no = Math.max(1, d.first ? Math.floor((new Date(from) - new Date(d.first)) / (kind === "week" ? 6048e5 : 864e5)) + 1 : 1);
+  const fig = (label, val, unit) => h("div", { key: label }, h("small", { className: "ja-caps" }, label), h("b", null, val, unit ? h("u", null, unit) : null));
+  const [tk, tu] = split(f ? f.tokens : 0);
+  return portal(h("div", { className: "ja-root ja-note-bg", onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+    h("article", { className: "ja-note", role: "dialog", "aria-label": kind === "week" ? "Weekly note" : "Daily note" },
+      h("button", { type: "button", className: "ja-x", "aria-label": "关闭", onClick: onClose }, "×"),
+      h("header", { className: "ja-mast" },
+        h("div", { className: "ja-mrow" },
+          h("span", { className: "ja-caps" }, kind === "week" ? `The Weekly Note · No. ${no}` : `The Daily Note · No. ${no}`),
+          h("div", { className: "ja-seg" }, [["day", "日报"], ["week", "周报"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": kind === k, onClick: () => setKind(k) }, l)))),
+        h("div", { className: "ja-mtitle" },
+          h("button", { type: "button", className: "ja-nav", "aria-label": "上一个", onClick: () => step(-1) }, "‹"),
+          h("h2", null, dateTitle(kind, day)),
+          h("button", { type: "button", className: "ja-nav", "aria-label": "下一个", disabled: to >= today, onClick: () => step(1) }, "›")),
+        h("div", { className: "ja-orn", "aria-hidden": true }, h("i"), h("span", null, "❦"), h("i"))),
+      err ? h("p", { className: "ja-lede" }, "读取失败：" + err) : !f ? h("p", { className: "ja-lede ja-dim" }, "正在翻页…") : h(React.Fragment, null,
+        h("p", { className: "ja-lede" }, lede(kind, day, f)),
+        f.sessions ? h(React.Fragment, null,
+          h("div", { className: "ja-figs" },
+            fig("Sessions", f.sessions), fig("Turns", f.turns), fig("Tokens", tk, tu),
+            kind === "week" ? fig("Days", Object.values(f.dayTok).filter((v) => v > 0).length, "/7") : fig("Hours", f.activeHours, "h"),
+            fig("Spent", money(f.cost, s))),
+          h("div", { className: "ja-cols" },
+            h("section", null, h("h6", { className: "ja-caps" }, "Where the work went"),
+              h("ul", { className: "ja-ws" }, f.wsList.slice(0, 5).map((w) => h("li", { key: w.name }, h("span", null, w.name), h(HatchBar, { v: w.tokens, max: f.wsList[0].tokens }), h("small", null, `${w.sessions} 会话 · ${w.turns} 轮`))))),
+            h("section", null, h("h6", { className: "ja-caps" }, kind === "week" ? "Day by day" : "Hour by hour"),
+              kind === "week" ? h(WeekBars, { from, dayTok: f.dayTok }) : h(HourStrip, { hours: rep.hours }))),
+          h("section", null, h("h6", { className: "ja-caps" }, "Sessions of note"),
+            h("ol", { className: "ja-sl" }, f.ranked.slice(0, 5).map((x) => h("li", { key: x.id },
+              h("b", null, x.title || "Untitled"),
+              h("small", null, [base(x.cwd), `${x.turns} 轮`, x.first ? (iso(new Date(x.first)) === iso(new Date(x.last)) ? `${hm(x.first)}–${hm(x.last)}` : `${WEEK_ZH[new Date(x.first).getDay()]} ${hm(x.first)} – ${WEEK_ZH[new Date(x.last).getDay()]} ${hm(x.last)}`) : "", fmt(bagTokens(x.by)) + " tok"].filter(Boolean).join(" · ")))))),
+          h("div", { className: "ja-cols" },
+            h("section", null, h("h6", { className: "ja-caps" }, "Of note"),
+              h("dl", { className: "ja-of" },
+                f.longest && f.longest.last > f.longest.first ? [h("dt", { key: 1 }, "最长的一次"), h("dd", { key: 2 }, `${f.longest.title || "Untitled"} · ${Math.max(1, Math.round((f.longest.last - f.longest.first) / 60000))} 分钟`)] : null,
+                f.latest ? [h("dt", { key: 3 }, "最晚"), h("dd", { key: 4 }, `${kind === "week" ? WEEK_ZH[new Date(f.latest.last).getDay()] + " " : ""}${hm(f.latest.last)}`)] : null,
+                f.first ? [h("dt", { key: 5 }, "最早"), h("dd", { key: 6 }, hm(f.first))] : null,
+                [h("dt", { key: 7 }, "连续"), h("dd", { key: 8 }, `${d.streak} 天`)])),
+            h("section", null, h("h6", { className: "ja-caps" }, "Models"),
+              h("ul", { className: "ja-ws" }, f.models.slice(0, 4).map(([m, v]) => h("li", { key: m }, h("span", { title: m }, modelName(m)), h(HatchBar, { v, max: f.models[0][1] }), h("small", null, Math.round((v / (f.tokens || 1)) * 100) + "%"))))))) : null),
+      h("footer", { className: "ja-nfoot" }, h("span", null, "Composed locally from your session logs"), h("span", null, "← → 翻页 · Esc 关闭")))));
+}
+const noteSeenKey = (n) => `ja-note-seen:${n.kind}:${n.day}`;
+function pendingNote(d) {
+  const today = new Date(), t = iso(today);
+  if (today.getDay() === 1) { const from = addDays(monday(t), -7); const n = { kind: "week", day: from }; let any = 0; for (let i = 0; i < 7; i++) any += d.days[addDays(from, i)] || 0; if (any) return n; }
+  for (let i = 1; i <= 7; i++) { const k = addDays(t, -i); if (d.days[k]) return { kind: "day", day: k }; }
+  return null;
+}
+function NoteCard({ d, s, onOpen }) {
+  const n = pendingNote(d), [, force] = React.useReducer((x) => x + 1, 0);
+  const [rep, setRep] = React.useState(null);
+  const seen = (() => { try { return n && localStorage.getItem(noteSeenKey(n)); } catch { return null; } })();
+  const key = n ? n.kind + n.day : "";
+  React.useEffect(() => { if (!n || seen) return; let on = true; const [a, b] = span(n.kind, n.day); fetchReport(a, b).then((v) => on && setRep(v), () => {}); return () => { on = false; }; }, [key, !!seen]);
+  if (!n || seen || !rep) return null;
+  const f = noteFacts(rep, s), dismiss = (e) => { e.stopPropagation(); try { localStorage.setItem(noteSeenKey(n), "1"); } catch {} force(); };
+  return h("div", { className: "ja-ncard", role: "button", tabIndex: 0, onClick: () => onOpen(n), onKeyDown: (e) => { if (e.key === "Enter") onOpen(n); } },
+    h("div", { className: "ja-nc-l" },
+      h("span", { className: "ja-caps" }, n.kind === "week" ? "上周小记 · The Weekly Note" : n.day === addDays(iso(new Date()), -1) ? "昨日小记 · The Daily Note" : `上回小记 · ${WEEK[new Date(n.day + "T12:00:00").getDay()]}`),
+      h("p", null, lede(n.kind, n.day, f))),
+    h("div", { className: "ja-nc-r" },
+      h("span", null, h("b", null, f.sessions), h("small", null, "会话")),
+      h("span", null, h("b", null, f.turns), h("small", null, "轮")),
+      h("em", null, "Read ›")),
+    h("button", { type: "button", className: "ja-x", "aria-label": "收起", title: "收起这一期", onClick: dismiss }, "×"));
+}
+
+/* ---------------- time of day & small occasions ---------------- */
+function phaseOf(hr) { return hr >= 5 && hr < 8 ? "dawn" : hr >= 8 && hr < 17 ? "day" : hr >= 17 && hr < 20 ? "dusk" : "night"; }
+const OCCASIONS = {
+  "01-01": ["Happy New Year", "新年快乐"], "12-25": ["Merry Christmas", "圣诞快乐"], "12-31": ["Last page of the year", "一年的最后一页"],
+  "2026-09-25": ["Happy Mid-Autumn", "月圆人团圆", "moon"], "2027-09-15": ["Happy Mid-Autumn", "月圆人团圆", "moon"], "2028-10-03": ["Happy Mid-Autumn", "月圆人团圆", "moon"],
+  "2027-02-06": ["Happy Spring Festival", "新春快乐"], "2028-01-26": ["Happy Spring Festival", "新春快乐"], "2029-02-13": ["Happy Spring Festival", "新春快乐"],
+};
+function occasion(now) { const k = iso(now); return OCCASIONS[k] || OCCASIONS[k.slice(5)] || null; }
 
 /* ---------------- class-hash remapping ----------------
  * The skin targets CSS-module classes like "pXSMma_headline". Module hashes differ

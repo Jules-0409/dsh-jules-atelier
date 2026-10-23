@@ -8,6 +8,8 @@
 
 - **Atelier skin** — warm paper / deep ink palettes that follow the system light & dark mode, thin gold rules, serif display type (Cormorant Garamond) with Manrope for UI text, gentle motion.
 - **Engraved ASCII whale** on the new-session page — it breathes, reacts to the cursor, spouts more often the more tokens you use today.
+- **Time of day** — the engraved plate follows the clock: a low sun in drifting mist at dawn, the noon medallion, warm rays and a gold path on the water at dusk, a crescent among twinkling stars at night (full on Mid-Autumn). Holidays get their own greeting.
+- **Daily & weekly notes** — a small gazette composed from your sessions: what you worked on, where, from when to when, sessions of note, hour-by-hour / day-by-day engravings. Yesterday's note waits on the home page (last week's on Mondays); click any heatmap day to read that day, ← → to page through history.
 - **Token heatmap** + today / month / tokens / streak at a glance.
 - **Per-session ledger** — input, cache-read and output tokens priced per session, per day and per month, plus a 14-day bar chart.
 - **Context panel & dial** redrawn: big serif percentage, engraved progress bar, system / tools / messages breakdown.
@@ -61,6 +63,8 @@ The skin targets Harness' CSS-module class names, so a Harness update can break 
 ## 中文简介
 
 Jules Atelier 是 DeepSeek Harness 桌面版的一套「纸与金」主题插件：日夜两套纸色、衬线字体、首页 ASCII 鲸鱼、token 热力图、每个会话的费用账本、重绘的上下文面板，以及 38 个手绘细线图标。所有数据都在本机计算，不上传。
+
+首页铜版会随时间变化（清晨薄雾、白天日轮、傍晚暖金、深夜弯月与星点，节日换一句问候）；还有「日报 / 周报」：首页的「昨日小记」（周一是「上周小记」），点热力图的任意一天也能翻看当天的日报。
 
 内置自动更新：启动时和每 12 小时检查一次 GitHub，有新版就在后台下载，重启 Harness 后生效；在「设置 › Atelier › Updates」里可以改成「仅提醒」或「关闭」，也可以手动「检查更新」。
 

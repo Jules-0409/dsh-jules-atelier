@@ -39,7 +39,8 @@ function build(){
   for(let x=fx;x<=tx;x++){const t=top(x);if(t>bhY&&t<ROWS){bhY=t;bhX=x}} bhX=Math.round(bhX-(bhX-fx)*.35); bhY=top(bhX);
   let minX=COLS,maxX=0,minY=ROWS;for(let r=0;r<ROWS;r++)for(let x=0;x<COLS;x++)if(cov[r][x]>.5){minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,r)}
   const cx0=(minX+maxX)/2*CW+X0, cy0=Y0+(minY+WL)/2*CH;
-  S={C,BOOST,night,FONT,CW,CH,COLS,ROWS,X0,Y0,WL,Wc,Hc,cov,hgt,lab,bellyId,eye,bhX,bhY,cx0,cy0,
+  const stars=[];for(let r=1;r<WL-3;r++)for(let x=1;x<COLS-1;x++){if(cov[r][x]>.02||(r>0&&cov[r-1][x]>.02)||cov[Math.min(ROWS-1,r+1)][x]>.02)continue;const k=hash(x,r,31);if(k<.014)stars.push({x,r,b:hash(x,r,32),f:.6+hash(x,r,33)*1.8,p:hash(x,r,34)*6.3})}
+  S={stars,C,BOOST,night,FONT,CW,CH,COLS,ROWS,X0,Y0,WL,Wc,Hc,cov,hgt,lab,bellyId,eye,bhX,bhY,cx0,cy0,
      L:S?.L||{x:cx0-260,y:cy0-260},LT:{x:cx0-260,y:cy0-260},hover:0,hoverT:0,spray:[],bubbles:[],nextSpout:S?S.nextSpout:2.4};
 }
 
@@ -47,15 +48,30 @@ function draw(t){
   if(!S) return; const {C,BOOST,FONT,CW,CH,COLS,ROWS,X0,Y0,WL,Wc,Hc,cov,hgt,lab,bellyId,eye,bhX,bhY,cx0,cy0}=S; const s=t/1000;
   S.L.x+=(S.LT.x-S.L.x)*.08;S.L.y+=(S.LT.y-S.L.y)*.08;S.hover+=(S.hoverT-S.hover)*.06; const L=S.L,hover=S.hover;
   ctx.clearRect(0,0,Wc,Hc);
-  /* medallion: sun by day, moon by night, sinking behind the sea */
-  const R0=Math.min(Wc*.42,Hc*.4), scx=cx0-CW*4, scy=Y0+WL*CH-R0*.55;
+  /* medallion follows the hour: low sun in mist at dawn, high at noon, warm and sinking at dusk,
+     a crescent (full on Mid-Autumn) among stars at night */
+  const PH=D.phase||'day', R0=Math.min(Wc*.42,Hc*.4), scx=cx0-CW*4;
+  const scy=Y0+WL*CH-R0*({dawn:.22,day:.55,dusk:.12,night:.5}[PH]);
+  const warm=PH==='dusk'?'226,169,91':PH==='dawn'?'232,196,150':C.hi, ga={dawn:.16,day:.11,dusk:.34,night:.09}[PH];
   ctx.save();ctx.beginPath();ctx.rect(0,0,Wc,Y0+WL*CH);ctx.clip();
-  const gr=ctx.createRadialGradient(scx,scy,0,scx,scy,R0);gr.addColorStop(0,`rgba(${C.hi},.11)`);gr.addColorStop(1,`rgba(${C.hi},0)`);
-  ctx.fillStyle=gr;ctx.beginPath();ctx.arc(scx,scy,R0,0,7);ctx.fill();ctx.lineWidth=.6;
+  if(PH==='night'){ /* stars */
+    for(const st of S.stars){const tw=.5+.5*Math.sin(s*st.f+st.p);ctx.fillStyle=`rgba(${C.hi},${(.18+.5*tw*st.b).toFixed(3)})`;ctx.font=FONT;ctx.textBaseline='top';ctx.fillText(tw>.93&&st.b>.7?'+':st.b>.8?'*':'·',X0+st.x*CW,Y0+st.r*CH)}}
+  const gr=ctx.createRadialGradient(scx,scy,0,scx,scy,R0);gr.addColorStop(0,`rgba(${warm},${ga})`);gr.addColorStop(1,`rgba(${warm},0)`);
+  ctx.fillStyle=gr;ctx.beginPath();ctx.arc(scx,scy,R0,0,7);ctx.fill();
+  if(PH==='night'){ /* moon disc inside the ring */
+    const mr=R0*.17, mx=scx-R0*1.32, my=Y0+R0*.42;
+    const mg=ctx.createRadialGradient(mx,my,0,mx,my,mr*2.6);mg.addColorStop(0,`rgba(${C.hi},.16)`);mg.addColorStop(1,`rgba(${C.hi},0)`);ctx.fillStyle=mg;ctx.beginPath();ctx.arc(mx,my,mr*2.6,0,7);ctx.fill();
+    ctx.save();ctx.beginPath();ctx.arc(mx,my,mr,0,7);ctx.clip();ctx.fillStyle=`rgba(${C.hi},.62)`;ctx.beginPath();ctx.arc(mx,my,mr,0,7);
+    if(!D.full)ctx.arc(mx+mr*.5,my-mr*.22,mr*.9,0,7);ctx.fill('evenodd');ctx.restore();
+    ctx.strokeStyle=`rgba(${C.gold},.4)`;ctx.lineWidth=.5;ctx.beginPath();ctx.arc(mx,my,mr+3,0,7);ctx.stroke()}
+  ctx.lineWidth=.6;
   ctx.strokeStyle=`rgba(${C.gold},.38)`;ctx.beginPath();ctx.arc(scx,scy,R0,0,7);ctx.stroke();
   ctx.strokeStyle=`rgba(${C.gold},.2)`;ctx.beginPath();ctx.arc(scx,scy,R0+5,0,7);ctx.stroke();
   for(let i=0;i<120;i++){const a=s*.035+i/120*Math.PI*2,l=i%10?1.6:4.2;ctx.strokeStyle=`rgba(${C.gold},${i%10?.26:.5})`;
     ctx.beginPath();ctx.moveTo(scx+Math.cos(a)*(R0+.5),scy+Math.sin(a)*(R0+.5));ctx.lineTo(scx+Math.cos(a)*(R0+.5+l),scy+Math.sin(a)*(R0+.5+l));ctx.stroke()}
+  if(PH==='dusk'){ /* long warm rays */
+    for(let i=0;i<13;i++){const a=Math.PI*(1.04+i*.0767),r1=R0*1.1,r2=R0*(i%2?1.38:1.62)+R0*.06*Math.sin(s*.4+i);ctx.strokeStyle=`rgba(226,169,91,${(.34+.1*Math.sin(s*.7+i)).toFixed(3)})`;ctx.lineWidth=i%2?.6:.9;
+      ctx.beginPath();ctx.moveTo(scx+Math.cos(a)*r1,scy+Math.sin(a)*r1);ctx.lineTo(scx+Math.cos(a)*r2,scy+Math.sin(a)*r2);ctx.stroke()}}
   ctx.restore();
   ctx.font=FONT;ctx.textBaseline='top';
   const put=(ch,x,r,rgb,a)=>{if(ch===' '||a<=.01)return;a*=BOOST;ctx.fillStyle=`rgba(${rgb},${a>1?1:a.toFixed(3)})`;ctx.fillText(ch,X0+x*CW,Y0+r*CH)};
@@ -101,5 +117,10 @@ function draw(t){
       if(c>.4&&!inB){if(hash(x,r,Math.floor(s*4))<.78)put(hash(x,r,3)<.5?'=':'-',x,r,C.gold,.7*fade)}
       else if(inB){if((x+r)%3===0)put('.',x,r,C.belly,.35*fade)}
       else{const tw=hash(x,r,Math.floor(s*1.5));if(tw<.012)put(tw<.004?'*':'·',x,r,C.hi,.55*fade);else if(tw<.06)put('.',x,r,C.sea,.35*fade)}}}
+  /* dawn mist: slow drifting bands over the waterline */
+  if(D.phase==='dawn'){for(let b=0;b<3;b++){const r0=WL-2-b*3;for(let x=0;x<COLS;x++){const n=Math.sin(x*.11+s*.25*(b+1)+b*2)+Math.sin(x*.037-s*.18+b);if(n<.55)continue;const r=r0+(Math.sin(x*.05+b)>0?0:1);
+    if(r<0||r>=ROWS||(cov[r]&&cov[r][x]>.5&&hash(x,r,b)<.6))continue;put(n>1.25?'~':hash(x,b,Math.floor(s))<.5?'-':'.',x,r,C.hi,.26+.16*(n-.55))}}}
+  /* dusk: gold path on the water under the sun */
+  if(D.phase==='dusk'){const sx=Math.round((cx0-CW*4-X0)/CW);for(let r=WL;r<ROWS;r++){const w=6+(r-WL)*1.6;for(let x=Math.max(0,Math.round(sx-w));x<Math.min(COLS,Math.round(sx+w));x++){const k=hash(x,r,Math.floor(s*3));if(k<.34)put(k<.1?'=':k<.2?'~':'-',x,r,'226,169,91',.9*(1-(r-WL)/(ROWS-WL+1)))}}}
 }
 
