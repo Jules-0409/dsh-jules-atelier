@@ -58,12 +58,6 @@ function draw(t){
     for(const st of S.stars){const tw=.5+.5*Math.sin(s*st.f+st.p);ctx.fillStyle=`rgba(${C.hi},${(.18+.5*tw*st.b).toFixed(3)})`;ctx.font=FONT;ctx.textBaseline='top';ctx.fillText(tw>.93&&st.b>.7?'+':st.b>.8?'*':'·',X0+st.x*CW,Y0+st.r*CH)}}
   const gr=ctx.createRadialGradient(scx,scy,0,scx,scy,R0);gr.addColorStop(0,`rgba(${warm},${ga})`);gr.addColorStop(1,`rgba(${warm},0)`);
   ctx.fillStyle=gr;ctx.beginPath();ctx.arc(scx,scy,R0,0,7);ctx.fill();
-  if(PH==='night'){ /* moon disc inside the ring */
-    const mr=R0*.17, mx=scx-R0*1.32, my=Y0+R0*.42;
-    const mg=ctx.createRadialGradient(mx,my,0,mx,my,mr*2.6);mg.addColorStop(0,`rgba(${C.hi},.16)`);mg.addColorStop(1,`rgba(${C.hi},0)`);ctx.fillStyle=mg;ctx.beginPath();ctx.arc(mx,my,mr*2.6,0,7);ctx.fill();
-    ctx.save();ctx.beginPath();ctx.arc(mx,my,mr,0,7);ctx.clip();ctx.fillStyle=`rgba(${C.hi},.62)`;ctx.beginPath();ctx.arc(mx,my,mr,0,7);
-    if(!D.full)ctx.arc(mx+mr*.5,my-mr*.22,mr*.9,0,7);ctx.fill('evenodd');ctx.restore();
-    ctx.strokeStyle=`rgba(${C.gold},.4)`;ctx.lineWidth=.5;ctx.beginPath();ctx.arc(mx,my,mr+3,0,7);ctx.stroke()}
   ctx.lineWidth=.6;
   ctx.strokeStyle=`rgba(${C.gold},.38)`;ctx.beginPath();ctx.arc(scx,scy,R0,0,7);ctx.stroke();
   ctx.strokeStyle=`rgba(${C.gold},.2)`;ctx.beginPath();ctx.arc(scx,scy,R0+5,0,7);ctx.stroke();

@@ -185,10 +185,11 @@ body.ja-skin [class*=JObwrW_row] dd{font:650 12px/1 var(--ja-sans)!important;col
 body.ja-skin [class*=JObwrW_swatch]{width:6px!important;height:6px!important;border-radius:1px!important;transform:rotate(45deg);margin:0 10px 0 2px!important}
 /* ---------- conversation sea ---------- */
 body.ja-skin [class*=ST7X_W_body]{position:relative}
-body.ja-skin [class*=ST7X_W_body]>.ja-sea{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;-webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,.6),#000 40%);mask-image:linear-gradient(180deg,rgba(0,0,0,.6),#000 40%)}
+body.ja-skin [class*=ST7X_W_body]>.ja-sea{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;-webkit-mask-image:linear-gradient(180deg,transparent,rgba(0,0,0,.55) 22%,#000 55%);mask-image:linear-gradient(180deg,transparent,rgba(0,0,0,.55) 22%,#000 55%)}
 body.ja-skin [class*=ST7X_W_body]>.ja-sea~*{position:relative;z-index:1}
 /* ---------- code blocks: a sheet of paper with a gold tab ---------- */
 body.ja-skin .md-code-block{border:1px solid var(--ja-line-2)!important;border-radius:3px!important;background:var(--ja-paper)!important;box-shadow:3px 3px 0 -1px var(--ja-paper),3px 3px 0 0 var(--ja-line-2),0 14px 26px -20px rgba(60,45,25,.35)!important;margin-right:4px}
+body.ja-skin .md-code-block [class*=_bannerWrap_],body.ja-skin .md-code-block [class*=_header_]{border-radius:0!important;background:transparent!important}
 body.ja-skin .md-code-block [data-code-block-banner]{background:transparent!important;border-bottom:1px solid var(--ja-line)!important;min-height:30px}
 body.ja-skin .md-code-block [class*=_language_]{display:inline-flex;align-items:center;gap:7px;font:600 9.5px/1 var(--ja-sans)!important;letter-spacing:.2em;text-transform:uppercase;color:var(--ja-gold-deep)!important}
 body.ja-skin .md-code-block [class*=_language_]::before{content:"";width:5px;height:5px;background:var(--ja-gold);transform:rotate(45deg);flex:none}
@@ -222,3 +223,13 @@ body.ja-skin [class*=ZVcBiW_failure]::before{content:"风浪大了点 · Rough w
 body.ja-skin [class*=-gRAhq_errorSummary]{color:var(--dsw-alias-state-error-primary)!important}
 
 body.ja-skin,body.ja-skin *{font-synthesis-style:none}
+
+/* ---------- session hover card: a paper slip instead of the black tooltip ---------- */
+body.ja-skin [class*=_card_]:has(>[class*=jJkEga_hoverContent]){--dsw-hovercard-bg:var(--ja-paper);background:var(--ja-paper)!important;border:1px solid var(--ja-line-2);border-radius:8px!important;padding:12px 16px 11px!important;box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 16px 32px -18px rgba(40,32,20,.35),0 2px 6px -3px rgba(40,32,20,.12)!important}
+body.ja-skin [class*=_card_]:has(>[class*=jJkEga_hoverContent])::before{content:"";position:absolute;left:16px;right:16px;top:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--ja-gold) 30%,var(--ja-gold) 70%,transparent);opacity:.7}
+body.ja-skin [class*=jJkEga_hoverContent]{color:var(--ja-ink)!important;display:flex;flex-direction:column;gap:0}
+body.ja-skin [class*=jJkEga_hoverTitle]{font-family:var(--ja-serif);font-size:15px!important;line-height:1.35!important;font-weight:500!important;color:var(--ja-ink)!important;padding-bottom:8px;margin-bottom:8px!important;border-bottom:1px solid var(--ja-line)}
+body.ja-skin [class*=jJkEga_hoverPath]{font:11px/1.4 var(--ja-mono)!important;color:var(--ja-ink-3)!important}
+body.ja-skin [class*=jJkEga_hoverTime],body.ja-skin [class*=jJkEga_hoverStatus],body.ja-skin [class*=jJkEga_hoverArchived]{font-size:11.5px!important;line-height:1.6!important;letter-spacing:.04em;color:var(--ja-ink-2)!important;margin-top:2px!important}
+body.ja-skin [class*=jJkEga_hoverStatus]>span:first-child{background:var(--ja-gold)!important;width:5px!important;height:5px!important;border-radius:0!important;transform:rotate(45deg)}
+body[data-ds-dark-theme].ja-skin [class*=_card_]:has(>[class*=jJkEga_hoverContent]){box-shadow:0 16px 32px -16px rgba(0,0,0,.6)!important}
