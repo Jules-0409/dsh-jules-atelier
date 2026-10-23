@@ -956,8 +956,16 @@ function mountSea(host, colSel) {
         if (dark) { const r = hash(x, y, 7); if (r < 0.007 * (1 - yn * 0.7)) { const tw = 0.5 + 0.5 * Math.sin(t * (0.6 + r * 90) + r * 999); put(tw > 0.8, x, y, tw > 0.92 ? "+" : tw > 0.45 ? "*" : ".", c); continue; } }
         if (!dark) {
           const dx = (x - mx) / Rx, dy = (y - my) / Rr, d = Math.hypot(dx, dy);
-          if (d < 1) { const b = (y - (my - Rr)) / (2 * Rr), gap = 1 + Math.floor(b * 3); if (dy > -0.35 && (my + Math.round(Rr) - y) % (gap + 1) === 0) { put(true, x, y, "=", c); continue; } continue; }
-          if (d < 1.13) { put(true, x, y, tang(Math.atan2(dy * Rr, dx * Rx)), c); continue; }
+          if (d < 1.55) { // the sun: a dense engraved disc, cut by thinning bands toward the horizon, with a dotted halo
+            const b = (y - (my - Rr)) / (2 * Rr);
+            if (d < 1) {
+              const cut = b > 0.5 && ((my + Math.round(Rr) - y) % Math.max(2, Math.round(5 - b * 4)) === 0);
+              if (cut) continue;
+              const v = Math.pow(1 - d * d, 0.5) + (hash(x, y, 2) - 0.5) * 0.06;
+              put(true, x, y, " .-=+*#"[Math.max(1, Math.min(6, Math.round(1 + v * 5.4)))], c); continue;
+            }
+            if (hash(x, y, 6) < 0.2 * (1 - (d - 1) / 0.55)) { put(true, x, y, d < 1.2 ? ":" : ".", c); continue; }
+          }
         }
         let tone = 0.35 * Math.pow(yn, 6);
         for (const [cy, cw, cx0, sp] of [[0.3, 0.05, 0.25, 0.006], [0.55, 0.045, 0.7, -0.004], [0.8, 0.04, 0.4, 0.003]]) {
