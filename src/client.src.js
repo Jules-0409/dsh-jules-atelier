@@ -222,7 +222,7 @@ function UpdateSection({ s }) {
     : `已是最新版本 · 检查于${ago(i.checkedAt)}`;
   const canUpdate = i && i.available && !i.pending;
   return h(React.Fragment, null,
-    h("h5", null, "Updates"),
+    h(Sec, { no: "V", en: "Updates", zh: "更新" }),
     h(Opt, { title: "Auto update", desc: mode === "auto" ? "启动后和每 12 小时从 GitHub 检查一次，有新版就自动下载，重启 Harness 后生效。" : mode === "notify" ? "只检查并提醒，由你手动点更新。" : "不自动检查，可以随时手动检查。" },
       h("div", { className: "ja-seg" }, [["auto", "自动"], ["notify", "仅提醒"], ["off", "关闭"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": mode === k, onClick: () => setSettings({ update: k }) }, l)))),
     h(Opt, { title: `Version · v${(i && i.current) || "…"}`, desc: status },
@@ -471,6 +471,7 @@ function SideLedger() {
 
 /* ---- settings section ---- */
 function Sw({ on, onChange, label }) { return h("button", { type: "button", role: "switch", className: "ja-sw", "aria-checked": !!on, "aria-label": label, onClick: () => onChange(!on) }); }
+function Sec({ no, en, zh }) { return h("div", { className: "ja-sh" }, h("span", { className: "ja-sh-no" }, no), h("h5", null, en), h("i", { className: "ja-rule" }), h("small", null, zh)); }
 function Opt({ title, desc, children }) { return h("div", { className: "ja-opt" }, h("div", null, h("strong", null, title), desc ? h("small", null, desc) : null), children); }
 function TxtIn({ value, onCommit, placeholder }) {
   const [v, setV] = React.useState(value);
@@ -494,26 +495,27 @@ function AtelierSettings() {
       h("p", null, "纸与金的皮肤、鲸鱼首页、账本与上下文——全部在本机计算，不上传任何数据。")),
       h(BrandMark, { size: 44 })),
     h(Opt, { title: "Name", desc: "侧栏字标、首页问候里显示的名字。留空则自动读取账号名或系统用户名。" }, h(TxtIn, { value: s.name || "", placeholder: (() => { const a = accountName() || (st.usage && st.usage.user) || ""; return a ? "auto · " + a : "auto"; })(), onCommit: set("name") })),
-    h("h5", null, "Appearance"),
+    h(Sec, { no: "I", en: "Appearance", zh: "外观" }),
     h(Opt, { title: "Atelier skin", desc: "纸色、金线、墨色按钮，覆盖侧栏、消息、输入框、弹窗与菜单。关闭后只保留配色。" }, h(Sw, { on: s.skin, onChange: set("skin"), label: "Atelier skin" })),
     h(Opt, { title: "Engraved icons", desc: "侧栏、输入框、消息操作栏的小图标换成手绘的细线版本，带一点金色点缀。" }, h(Sw, { on: s.icons !== false, onChange: set("icons"), label: "Engraved icons" })),
     h(Opt, { title: "Typography", desc: "正文 Manrope + 苹方，标题与数字 Cormorant Garamond。" }, h(Sw, { on: s.fonts, onChange: set("fonts"), label: "Typography" })),
     h(Opt, { title: "Paper grain", desc: "极淡的纸纹底。" }, h(Sw, { on: s.paper, onChange: set("paper"), label: "Paper grain" })),
     h(Opt, { title: "Motion", desc: "消息浮现、按钮金光扫过、弹窗过渡。系统开启“减少动态效果”时自动停用。" }, h(Sw, { on: s.motion, onChange: set("motion"), label: "Motion" })),
-    h("h5", null, "Home"),
+    h(Sec, { no: "II", en: "Home", zh: "首页" }),
     h(Opt, { title: "Engraved whale", desc: "首页铜版鲸鱼：今天用得越多刻线越密，会话运行时会喷水。" }, h(Sw, { on: s.hero, onChange: set("hero"), label: "Whale" })),
     h(Opt, { title: "Time of day", desc: "首页铜版随时间变化：清晨薄雾、白天日轮、傍晚暖金、深夜星点和弯月；节日会换一句问候。" }, h(Sw, { on: s.timeOfDay !== false, onChange: set("timeOfDay"), label: "Time of day" })),
     h(Opt, { title: "Daily & weekly notes", desc: "首页出现「昨日小记」，周一换成「上周小记」；点热力图的任意一天也能翻看那天的日报。" }, h(Sw, { on: s.notes !== false, onChange: set("notes"), label: "Notes" })),
     h(Opt, { title: "Token heatmap", desc: "铺满宽度的每日用量热力图，加上今日 / 本月费用。" }, h(Sw, { on: s.heat, onChange: set("heat"), label: "Heatmap" })),
-    h("h5", null, "Ledger"),
+    h(Sec, { no: "III", en: "Ledger", zh: "账本" }),
     h(Opt, { title: "Session ledger", desc: "输入框下方显示本会话费用，点开看分项、模型与上下文占用。" }, h(Sw, { on: s.ledger, onChange: set("ledger"), label: "Session ledger" })),
     h(Opt, { title: "Sidebar ledger", desc: "侧栏底部显示今日费用和 14 天走势。" }, h(Sw, { on: s.sideLedger, onChange: set("sideLedger"), label: "Sidebar ledger" })),
     h(Opt, { title: "Currency", desc: s.currency === "CNY" ? "价格表以美元计，按汇率换算。" : "价格表原样以美元显示。" },
-      s.currency === "CNY" ? h(NumIn, { value: s.rate, onCommit: set("rate") }) : null,
+      s.currency === "CNY" ? h("label", { className: "ja-rate" }, h("span", null, "$1 ="), h(NumIn, { value: s.rate, onCommit: set("rate"), width: 64 }), h("span", null, "¥")) : null,
       h("div", { className: "ja-seg" }, ["CNY", "USD"].map((c) => h("button", { key: c, type: "button", "aria-pressed": s.currency === c, onClick: () => setSettings({ currency: c }) }, c === "CNY" ? "¥ CNY" : "$ USD")))),
     h(Opt, { title: "Daily budget", desc: `以${s.currency === "CNY" ? "人民币" : "美元"}计，0 表示不设预算（进度条改为对比日均）。今天已花 ${money(d.todayCost, s)}。` }, h(NumIn, { value: s.budget, onCommit: set("budget") })),
-    h("h5", null, "Price book · USD per 1M tokens"),
-    h("table", { className: "ja-prices" },
+    h(Sec, { no: "IV", en: "Price book", zh: "USD / 1M tokens" }),
+    h("div", { className: "ja-pwrap" }, h("table", { className: "ja-prices" },
+      h("colgroup", null, h("col", null), h("col", { style: { width: 78 } }), h("col", { style: { width: 78 } }), h("col", { style: { width: 78 } }), h("col", { style: { width: 74 } }), h("col", { style: { width: 48 } })),
       h("thead", null, h("tr", null, h("th", null, "Model"), h("th", null, "Input"), h("th", null, "Cache"), h("th", null, "Output"), h("th", null, "Spent"), h("th", null, ""))),
       h("tbody", null, models.map(([m, v]) => {
         const p = priceOf(m, s), custom = !!(s.prices && s.prices[m]);
@@ -522,9 +524,10 @@ function AtelierSettings() {
           [0, 1, 2].map((i) => h("td", { key: i }, h(NumIn, { value: p[i], onCommit: (n) => setPrice(m, i, n) }))),
           h("td", { className: "ja-c" }, money(costOf(m, v, s), s)),
           h("td", null, custom ? h("button", { type: "button", className: "ja-link", onClick: () => resetPrice(m) }, "Reset") : null));
-      }))),
-    h("p", { className: "ja-note" }, "价格为估算值：标注 est. 的模型请按你的实际账单改一下，改动会立即反映到账本与首页。"),
-    h(UpdateSection, { s }));
+      })))),
+    h("p", { className: "ja-fine" }, "价格为估算值：标注 est. 的模型请按你的实际账单改一下，改动会立即反映到账本与首页。"),
+    h(UpdateSection, { s }),
+    h("footer", { className: "ja-colo" }, h("i", { className: "ja-rule" }), h("span", null, "one piece at a time."), h("i", { className: "ja-rule" })));
 }
 
 /* ---------------- daily & weekly notes ----------------
@@ -651,7 +654,7 @@ function NoteView({ note, onClose }) {
                 f.longest && f.longest.last > f.longest.first ? [h("dt", { key: 1 }, "最长的一次"), h("dd", { key: 2 }, `${f.longest.title || "Untitled"} · ${Math.max(1, Math.round((f.longest.last - f.longest.first) / 60000))} 分钟`)] : null,
                 f.latest ? [h("dt", { key: 3 }, "最晚"), h("dd", { key: 4 }, `${kind === "week" ? WEEK_ZH[new Date(f.latest.last).getDay()] + " " : ""}${hm(f.latest.last)}`)] : null,
                 f.first ? [h("dt", { key: 5 }, "最早"), h("dd", { key: 6 }, hm(f.first))] : null,
-                [h("dt", { key: 7 }, "连续"), h("dd", { key: 8 }, `${d.streak} 天`)])),
+                d.streak > 1 ? [h("dt", { key: 7 }, "至今连续"), h("dd", { key: 8 }, `${d.streak} 天`)] : null)),
             h("section", null, h("h6", { className: "ja-caps" }, "Models"),
               h("ul", { className: "ja-ws" }, f.models.slice(0, 4).map(([m, v]) => h("li", { key: m }, h("span", { title: m }, modelName(m)), h(HatchBar, { v, max: f.models[0][1] }), h("small", null, Math.round((v / (f.tokens || 1)) * 100) + "%"))))))) : null),
       h("footer", { className: "ja-nfoot" }, h("span", null, "Composed locally from your session logs"), h("span", null, "← → 翻页 · Esc 关闭")))));
@@ -671,14 +674,16 @@ function NoteCard({ d, s, onOpen }) {
   React.useEffect(() => { if (!n || seen) return; let on = true; const [a, b] = span(n.kind, n.day); fetchReport(a, b).then((v) => on && setRep(v), () => {}); return () => { on = false; }; }, [key, !!seen]);
   if (!n || seen || !rep) return null;
   const f = noteFacts(rep, s), dismiss = (e) => { e.stopPropagation(); try { localStorage.setItem(noteSeenKey(n), "1"); } catch {} force(); };
-  return h("div", { className: "ja-ncard", role: "button", tabIndex: 0, onClick: () => onOpen(n), onKeyDown: (e) => { if (e.key === "Enter") onOpen(n); } },
-    h("div", { className: "ja-nc-l" },
-      h("span", { className: "ja-caps" }, n.kind === "week" ? "上周小记 · The Weekly Note" : n.day === addDays(iso(new Date()), -1) ? "昨日小记 · The Daily Note" : `上回小记 · ${WEEK[new Date(n.day + "T12:00:00").getDay()]}`),
-      h("p", null, lede(n.kind, n.day, f))),
-    h("div", { className: "ja-nc-r" },
-      h("span", null, h("b", null, f.sessions), h("small", null, "会话")),
-      h("span", null, h("b", null, f.turns), h("small", null, "轮")),
-      h("em", null, "Read ›")),
+  const label = n.kind === "week" ? "The Weekly Note" : n.day === addDays(iso(new Date()), -1) ? "The Daily Note · Yesterday" : `The Daily Note · ${WEEK[new Date(n.day + "T12:00:00").getDay()]}`;
+  const bits = [`${f.sessions} 个会话`, `${f.turns} 轮`];
+  if (f.wsList[0] && f.wsList[0].name !== "—") bits.push(f.wsList[0].name);
+  if (n.kind === "day" && f.first && f.last) bits.push(`${hm(f.first)}–${hm(f.last)}`);
+  return h("div", { className: "ja-ncard", role: "button", tabIndex: 0, title: lede(n.kind, n.day, f), onClick: () => onOpen(n), onKeyDown: (e) => { if (e.key === "Enter") onOpen(n); } },
+    h("span", { className: "ja-caps" }, label),
+    h("span", { className: "ja-rule" }),
+    h("span", { className: "ja-nc-f" }, bits.join("  ·  ")),
+    h("span", { className: "ja-rule" }),
+    h("em", { className: "ja-nc-go" }, "Read ›"),
     h("button", { type: "button", className: "ja-x", "aria-label": "收起", title: "收起这一期", onClick: dismiss }, "×"));
 }
 

@@ -22,7 +22,7 @@ body[data-ds-dark-theme] .ja-root{--canvas:#1C1B19;--paper:#22211E;--ink:#ECE5D6
 .ja-greet h2 em{font-style:italic;color:var(--gold-deep)}
 .ja-greet p{margin:0;font-size:13px;color:var(--ink-2)}
 .ja-greet p b{font-weight:700;color:var(--ink)}
-.ja-heat{display:flex;align-items:center;gap:18px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.ja-heat{display:flex;align-items:center;gap:22px;padding:14px 0;border-top:1px solid var(--line-2);border-bottom:1px solid var(--line);background:transparent}
 .ja-grid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,9px);grid-auto-columns:9px;gap:3px;flex:1 1 auto;min-width:0;overflow:hidden;justify-content:start}
 .ja-grid i{border-radius:2px;background:var(--h0)}
 .ja-stats{display:grid;grid-template-columns:repeat(4,auto);gap:4px 18px;margin-left:auto}
@@ -86,33 +86,46 @@ body[data-ds-dark-theme] .ja-root{--canvas:#1C1B19;--paper:#22211E;--ink:#ECE5D6
 [data-collapsed=true] .ja-side,[class*=Collapsed] .ja-side{display:none}
 /* ---- settings ---- */
 .ja-set{max-width:720px;color:var(--ink)}
-.ja-set header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 0 18px;border-bottom:1px solid var(--line-2)}
-.ja-set header h3{margin:4px 0 0;font:500 30px/1.05 var(--f-serif)}
+.ja-set header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:4px 0 20px;border-bottom:1px solid var(--line-2);box-shadow:0 3px 0 -2px var(--line)}
+.ja-set header h3{margin:8px 0 0;font:500 34px/1.05 var(--f-serif);letter-spacing:-.01em}
 .ja-set header h3 em{color:var(--gold-deep)}
-.ja-set header p{margin:6px 0 0;color:var(--ink-2);font-size:13px}
-.ja-set h5{margin:26px 0 4px;font:600 10px/1 var(--f-sans);letter-spacing:.24em;text-transform:uppercase;color:var(--gold-deep)}
-.ja-opt{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
-.ja-opt > div{flex:1;min-width:0}
-.ja-opt strong{display:block;font-weight:600;font-size:14px;color:var(--ink)}
-.ja-opt small{display:block;margin-top:2px;color:var(--ink-3);font-size:12px;line-height:1.5}
-.ja-sw{position:relative;flex:none;width:38px;height:22px;border:0;border-radius:999px;background:var(--line-2);cursor:pointer;transition:background .25s}
-.ja-sw:after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--paper);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .3s cubic-bezier(.2,.7,.2,1)}
-.ja-sw[aria-checked=true]{background:var(--gold)}
-.ja-sw[aria-checked=true]:after{transform:translateX(16px)}
-.ja-seg{display:inline-flex;flex:none;padding:2px;border:1px solid var(--line-2);border-radius:999px;background:var(--paper)}
-.ja-seg button{border:0;background:none;padding:5px 12px;border-radius:999px;font:600 12px/1 var(--f-sans);color:var(--ink-2);cursor:pointer;transition:background .2s,color .2s}
+.ja-set header p{margin:8px 0 0;color:var(--ink-3);font-size:12.5px}
+.ja-sh{display:flex;align-items:baseline;gap:12px;margin:34px 0 2px}
+.ja-sh-no{font:italic 500 15px/1 var(--f-serif);color:var(--gold);min-width:18px}
+.ja-sh h5{margin:0;font:600 10.5px/1 var(--f-sans);letter-spacing:.26em;text-transform:uppercase;color:var(--gold-deep)}
+.ja-sh .ja-rule{align-self:center;background:var(--line)}
+.ja-sh small{font:400 11.5px/1 var(--f-sans);letter-spacing:.08em;color:var(--ink-3);white-space:nowrap}
+.ja-opt{display:flex;align-items:center;gap:18px;padding:13px 0 13px 30px;border-bottom:1px solid var(--line)}
+.ja-set > .ja-opt:first-of-type{padding-left:0}
+.ja-opt > div:first-child{flex:1;min-width:0}
+.ja-opt strong{display:block;font:500 17px/1.25 var(--f-serif);letter-spacing:.005em;color:var(--ink)}
+.ja-opt small{display:block;margin-top:3px;color:var(--ink-3);font-size:12px;line-height:1.55}
+.ja-sw{position:relative;flex:none;width:34px;height:18px;border:1px solid var(--line-2);border-radius:999px;background:transparent;cursor:pointer;transition:background .25s,border-color .25s}
+.ja-sw:after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--ink-3);transition:transform .3s cubic-bezier(.2,.7,.2,1),background .25s}
+.ja-sw[aria-checked=true]{background:var(--gold);border-color:var(--gold)}
+.ja-sw[aria-checked=true]:after{transform:translateX(16px);background:var(--paper)}
+.ja-sw:focus-visible{outline:2px solid var(--gold-soft);outline-offset:2px}
+.ja-seg{display:inline-flex;flex:none;width:max-content;padding:2px;border:1px solid var(--line-2);border-radius:999px;background:transparent}
+.ja-seg button{flex:none;border:0;background:none;padding:5px 12px;border-radius:999px;font:600 11.5px/1 var(--f-sans);letter-spacing:.04em;color:var(--ink-3);cursor:pointer;transition:background .2s,color .2s}
+.ja-seg button:hover{color:var(--ink)}
 .ja-seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
-.ja-in{width:84px;height:30px;padding:0 10px;border:1px solid var(--line-2);border-radius:8px;background:var(--paper);color:var(--ink);font:650 12.5px/1 var(--f-sans);font-variant-numeric:tabular-nums;text-align:right;outline:none;transition:border-color .2s,box-shadow .2s}
-.ja-in:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(164,134,89,.15)}
-.ja-prices{width:100%;border-collapse:collapse;margin-top:6px}
-.ja-prices th{font:600 10px/1 var(--f-sans);letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);text-align:right;padding:10px 6px;border-bottom:1px solid var(--gold)}
-.ja-prices th:first-child,.ja-prices td:first-child{text-align:left}
-.ja-prices td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}
-.ja-prices td:first-child{font-weight:600;font-size:13px;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ja-prices td small{display:block;font-weight:500;color:var(--ink-3);font-size:11px}
-.ja-prices .ja-in{width:70px;height:26px;font-size:13px}
-.ja-prices td.ja-c{font:650 12.5px/1 var(--f-sans);font-variant-numeric:tabular-nums;color:var(--gold-deep)}
-.ja-note{margin-top:10px;color:var(--ink-3);font:italic 500 13px/1.5 var(--f-serif)}
+.ja-rate{display:inline-flex;align-items:center;gap:6px;flex:none;color:var(--ink-3);font:500 14px/1 var(--f-serif)}
+.ja-in{width:84px;height:28px;padding:0 9px;border:0;border-bottom:1px solid var(--line-2);border-radius:0;background:transparent;color:var(--ink);font:500 15px/1 var(--f-serif);font-variant-numeric:tabular-nums;text-align:right;outline:none;transition:border-color .2s,background .2s}
+.ja-in:hover{border-bottom-color:var(--gold)}
+.ja-in:focus{border-bottom-color:var(--gold-deep);background:var(--gold-soft)}
+.ja-pwrap{margin:2px 0 0 30px;overflow-x:auto}
+.ja-prices{width:100%;table-layout:fixed;border-collapse:collapse}
+.ja-prices th{font:600 9.5px/1 var(--f-sans);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);text-align:right;padding:12px 6px 9px;border-bottom:1px solid var(--line-2)}
+.ja-prices th:first-child,.ja-prices td:first-child{text-align:left;padding-left:0}
+.ja-prices td{padding:6px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}
+.ja-prices td:first-child{font:500 13px/1.3 var(--f-sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ja-prices td small{display:block;font:italic 400 12px/1.3 var(--f-serif);color:var(--ink-3)}
+.ja-prices .ja-in{width:100%;height:26px;padding:0 4px;font-size:15px}
+.ja-prices td.ja-c{font:500 15px/1 var(--f-serif);font-variant-numeric:tabular-nums;color:var(--gold-deep)}
+.ja-prices tbody tr:hover td{background:linear-gradient(var(--gold-soft),var(--gold-soft))}
+.ja-fine{margin:12px 0 0 30px;color:var(--ink-3);font:400 12px/1.6 var(--f-sans)}
+.ja-colo{display:flex;align-items:center;gap:16px;margin:40px 0 8px;color:var(--gold);font:italic 400 15px/1 var(--f-serif)}
+.ja-colo .ja-rule{background:var(--line)}
 .ja-link{border:0;background:none;color:var(--gold-deep);font:600 10px/1 var(--f-sans);letter-spacing:.18em;text-transform:uppercase;cursor:pointer}
 /* font shorthand resets font-variant; force lining figures everywhere */
 body.ja-skin,body.ja-skin *,.ja-root,.ja-root *{font-variant-numeric:lining-nums!important}
@@ -143,15 +156,15 @@ body.ja-skin :is(button,a,[role=button],[role=menuitem]):is(:hover,:focus-visibl
 /* ---- daily & weekly notes ---- */
 .ja-grid i.ja-on{cursor:pointer}
 .ja-grid i.ja-on:hover{outline:1px solid var(--gold-deep);outline-offset:1px}
-.ja-ncard{position:relative;display:flex;align-items:center;gap:22px;padding:14px 44px 14px 18px;border:1px solid var(--line);border-left:2px solid var(--gold);border-radius:8px;background:var(--paper);cursor:pointer;transition:border-color .25s,box-shadow .25s;animation:ja-rise .5s ease-out both}
-.ja-ncard:hover{border-color:var(--line-2);border-left-color:var(--gold-deep);box-shadow:0 6px 20px rgba(60,45,20,.07)}
-.ja-nc-l{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
-.ja-nc-l p{margin:0;font:italic 500 17px/1.4 var(--f-serif);color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.ja-nc-r{display:flex;align-items:baseline;gap:16px;flex:none}
-.ja-nc-r span{display:flex;flex-direction:column;align-items:center}
-.ja-nc-r b{font:500 26px/1 var(--f-serif);color:var(--ink)}
-.ja-nc-r small{font:600 9px/1.6 var(--f-sans);letter-spacing:.2em;color:var(--ink-3)}
-.ja-nc-r em{font:italic 500 14px/1 var(--f-serif);color:var(--gold-deep);margin-left:4px}
+.ja-ncard{position:relative;display:flex;align-items:center;gap:14px;margin:2px 0 -2px;padding:6px 26px 6px 0;cursor:pointer;animation:ja-rise .5s ease-out both}
+.ja-ncard .ja-caps{color:var(--gold-deep);transition:color .25s}
+.ja-nc-f{font:400 12.5px/1 var(--f-sans);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;letter-spacing:.02em}
+.ja-ncard .ja-rule{min-width:24px;transition:background .25s}
+.ja-nc-go{font:italic 500 15px/1 var(--f-serif);color:var(--gold-deep);white-space:nowrap;transition:transform .25s}
+.ja-ncard:hover .ja-rule{background:var(--gold)}
+.ja-ncard:hover .ja-nc-go{transform:translateX(3px)}
+.ja-ncard .ja-x{top:50%;right:-4px;margin-top:-12px;opacity:0;transition:opacity .2s}
+.ja-ncard:hover .ja-x,.ja-ncard:focus-visible .ja-x{opacity:1}
 .ja-x{position:absolute;top:8px;right:10px;width:24px;height:24px;border:0;border-radius:50%;background:none;color:var(--ink-3);font:300 18px/1 var(--f-sans);cursor:pointer}
 .ja-x:hover{background:var(--gold-soft);color:var(--ink)}
 @keyframes ja-rise{from{opacity:0;transform:translateY(6px)}}
@@ -171,7 +184,7 @@ body[data-ds-dark-theme] .ja-note-bg{background:rgba(0,0,0,.55)}
 .ja-orn i{flex:1;height:0;border-top:1px solid var(--line-2);position:relative}
 .ja-orn i:after{content:"";position:absolute;left:0;right:0;top:2px;border-top:1px solid var(--line)}
 .ja-orn span{font:400 18px/1 var(--f-serif)}
-.ja-lede{margin:22px auto 4px;max-width:600px;text-align:center;font:italic 500 21px/1.5 var(--f-serif);color:var(--ink)}
+.ja-lede{margin:22px auto 4px;max-width:600px;text-align:center;font:italic 500 20px/1.65 var(--f-serif);color:var(--ink)}
 .ja-dim{color:var(--ink-3)}
 .ja-figs{display:grid;grid-template-columns:repeat(5,1fr);margin:24px 0 8px;border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2)}
 .ja-figs>div{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 4px}
@@ -202,7 +215,11 @@ body[data-ds-dark-theme] .ja-note-bg{background:rgba(0,0,0,.55)}
 .ja-sl b{font:500 17px/1.3 var(--f-serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ja-sl small{color:var(--ink-3);font-size:11px}
 .ja-of{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;margin:0}
-.ja-of dt{font:600 10px/1.9 var(--f-sans);letter-spacing:.14em;color:var(--ink-3)}
+.ja-of{align-items:baseline}
+.ja-of dt{font:600 10px/1.5 var(--f-sans);letter-spacing:.14em;color:var(--ink-3)}
 .ja-of dd{margin:0;font:500 15px/1.5 var(--f-serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ja-nfoot{display:flex;justify-content:space-between;margin-top:26px;padding-top:10px;border-top:1px solid var(--line);font:italic 500 12px/1 var(--f-serif);color:var(--ink-3)}
 @media (max-width:640px){.ja-note{padding:28px 20px 18px}.ja-figs{grid-template-columns:repeat(3,1fr)}.ja-cols{grid-template-columns:1fr;gap:0}.ja-mtitle h2{font-size:30px}.ja-nc-r{display:none}}
+
+/* CJK fonts have no italic: never fake-slant them; Latin keeps the real Cormorant italic */
+.ja-root,.ja-root *,body.ja-skin{font-synthesis-style:none}
