@@ -915,7 +915,7 @@ function mountSea(host, colSel) {
     const t = (now - t0) / 1000; energy += ((busy ? 1 : 0) - energy) * 0.04;
     const tt = t * (1 + energy * 0.6);
     bk = []; levels();
-    const hz = Math.round(rows * 0.55), ml = colL > 0 ? colL : cols * 0.2, mg = colR > 0 ? cols - colR : cols * 0.25;
+    const hz0 = colR > 0 && cols - colR < 24 ? 0.62 : 0.55, hz = Math.round(rows * hz0), ml = colL > 0 ? colL : cols * 0.2, mg = colR > 0 ? cols - colR : cols * 0.25;
     const mx = Math.round(colR > 0 ? colR + mg * 0.5 : cols * 0.82);
     const Rx = Math.max(7, Math.min(mg * 0.36, cols * 0.08)), Rr = Rx * CW / CH, my = Math.round(hz - Rr * 0.55);
     const tick = Math.floor(t * 2);
@@ -967,7 +967,7 @@ function mountSea(host, colSel) {
         const c = colLv[x];
         if (land[x] > 0.5 && y - hz < land[x] * 0.7 && hash(x, y, tick) < 0.8 - (y - hz) / (land[x] * 0.7) * 0.6) { put(false, x, y, (y + tick) % 3 ? "=" : "-", c); continue; }
         const ph = cur[x], f = fr(ph), span = Math.abs(prev[x] - ph);
-        const glint = !dark && Math.abs(x - mx) < rw ? 1 - Math.abs(x - mx) / rw : 0;
+        const glint = Math.abs(x - mx) < rw ? (1 - Math.abs(x - mx) / rw) * (dark ? 0.55 : 1) : 0;
         if (Math.floor(prev[x]) !== Math.floor(ph)) {
           if (glint > 0 && hash(x, y, tick) < glint * 1.2) { put(true, x, y, "~", c); continue; }
           if (span > 0.6) { if (vn(x * 0.18 + y * 7.3, 41) > 0.5) put(false, x, y, "-", c); continue; }
@@ -982,7 +982,7 @@ function mountSea(host, colSel) {
       const sw = prev; prev = cur; cur = sw;
     }
     ctx.clearRect(0, 0, W, H); ctx.font = `${dark ? 600 : 700} ${FS}px ${mono}`;
-    const base = dark ? 0.3 : 0.26, gb = dark ? 0.5 : 0.62;
+    const base = dark ? 0.36 : 0.26, gb = dark ? 0.42 : 0.62;
     for (let k = 0; k < bk.length; k++) { const list = bk[k]; if (!list) continue; const lv = k % NL;
       ctx.fillStyle = k >= NL ? gold : ink; ctx.globalAlpha = (k >= NL ? gb : base) * (1 - 0.72 * lv / (NL - 1));
       for (let i = 0; i < list.length; i += 3) ctx.fillText(list[i + 2], list[i], list[i + 1]); }
@@ -994,7 +994,7 @@ function mountSea(host, colSel) {
   const mo = new MutationObserver(() => { build(); }); mo.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "class"] });
   build(); pollBusy(); const bt = setInterval(pollBusy, 1000);
   if (reduceMotion()) draw(t0 + 6000);
-  else { const loop = (now) => { if (dead) return; if (!document.hidden && now - last >= 100) { last = now; draw(now); } raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); }
+  else { const loop = (now) => { if (dead) return; if (!document.hidden && now - last >= (busy || energy > 0.05 ? 90 : document.hasFocus() ? 180 : 1000)) { last = now; draw(now); } raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); }
   return () => { dead = true; cancelAnimationFrame(raf); clearInterval(bt); ro.disconnect(); mo.disconnect(); cv.remove(); };
 }
 let seaHost = null, seaOff = null, seaMo = null, seaT = 0;

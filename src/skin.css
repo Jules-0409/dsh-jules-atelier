@@ -61,8 +61,7 @@ body.ja-skin.ja-motion [class*=wSkVaW_tab]:not([class*=Active]):after{transform:
 /* ---------- chat flow ---------- */
 body.ja-skin.ja-motion [data-chat-flow] > [data-slot="conversation.chat.flow"] > div{animation:ja-rise .5s var(--ja-ease) both}
 @keyframes ja-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-body.ja-skin [class*=Sixlwa_bubble]{position:relative;background:var(--ja-paper)!important;border:1px solid var(--ja-line-2);border-radius:14px 14px 4px 14px!important;box-shadow:var(--ja-shadow);color:var(--ja-ink)}
-body.ja-skin [class*=Sixlwa_bubble]:after{content:"";position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-right:1.5px solid var(--ja-gold);border-bottom:1.5px solid var(--ja-gold);border-radius:0 0 4px 0;opacity:.7}
+body.ja-skin [class*=Sixlwa_bubble]{position:relative;background:var(--ja-paper)!important;border:1px solid var(--ja-line-2);border-radius:12px!important;box-shadow:var(--ja-shadow);color:var(--ja-ink)}
 body.ja-skin [class*=xzv4MW_time]{font:500 11px/1 var(--ja-sans);font-variant-numeric:tabular-nums;letter-spacing:.03em;color:var(--ja-ink-3)}
 body.ja-skin [class*=xzv4MW_action],body.ja-skin [class*=_8_XoUG_action]{border-radius:6px;transition:color .18s,background .18s}
 body.ja-skin [class*=xzv4MW_action]:hover,body.ja-skin [class*=_8_XoUG_action]:hover{color:var(--ja-gold-deep)}
@@ -224,12 +223,11 @@ body.ja-skin [class*=-gRAhq_errorSummary]{color:var(--dsw-alias-state-error-prim
 
 body.ja-skin,body.ja-skin *{font-synthesis-style:none}
 
-/* ---------- session hover card: a paper slip instead of the black tooltip ---------- */
-body.ja-skin [class*=_card_]:has(>[class*=jJkEga_hoverContent]){--dsw-hovercard-bg:var(--ja-paper);background:var(--ja-paper)!important;border:1px solid var(--ja-line-2);border-radius:8px!important;padding:12px 16px 11px!important;box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 16px 32px -18px rgba(40,32,20,.35),0 2px 6px -3px rgba(40,32,20,.12)!important}
-body.ja-skin [class*=_card_]:has(>[class*=jJkEga_hoverContent])::before{content:"";position:absolute;left:16px;right:16px;top:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--ja-gold) 30%,var(--ja-gold) 70%,transparent);opacity:.7}
-body.ja-skin [class*=jJkEga_hoverContent]{color:var(--ja-ink)!important;display:flex;flex-direction:column;gap:0}
-body.ja-skin [class*=jJkEga_hoverTitle]{font-family:var(--ja-serif);font-size:15px!important;line-height:1.35!important;font-weight:500!important;color:var(--ja-ink)!important;padding-bottom:8px;margin-bottom:8px!important;border-bottom:1px solid var(--ja-line)}
-body.ja-skin [class*=jJkEga_hoverPath]{font:11px/1.4 var(--ja-mono)!important;color:var(--ja-ink-3)!important}
-body.ja-skin [class*=jJkEga_hoverTime],body.ja-skin [class*=jJkEga_hoverStatus],body.ja-skin [class*=jJkEga_hoverArchived]{font-size:11.5px!important;line-height:1.6!important;letter-spacing:.04em;color:var(--ja-ink-2)!important;margin-top:2px!important}
-body.ja-skin [class*=jJkEga_hoverStatus]>span:first-child{background:var(--ja-gold)!important;width:5px!important;height:5px!important;border-radius:0!important;transform:rotate(45deg)}
-body[data-ds-dark-theme].ja-skin [class*=_card_]:has(>[class*=jJkEga_hoverContent]){box-shadow:0 16px 32px -16px rgba(0,0,0,.6)!important}
+
+/* ---------- "load earlier" and "back to bottom": typeset, not pills ---------- */
+body.ja-skin [class*=icaHSq_older] button{background:none!important;border:0!important;box-shadow:none!important;color:var(--ja-ink-3)!important;font-size:11.5px!important;letter-spacing:.24em;padding:4px 2px!important;display:inline-flex;align-items:center;gap:12px;transition:color .2s}
+body.ja-skin [class*=icaHSq_older] button::before,body.ja-skin [class*=icaHSq_older] button::after{content:"";width:36px;height:1px;background:var(--ja-line-2);transition:background .2s,width .3s var(--ja-ease,ease)}
+body.ja-skin [class*=icaHSq_older] button:hover{color:var(--ja-gold-deep)!important}
+body.ja-skin [class*=icaHSq_older] button:hover::before,body.ja-skin [class*=icaHSq_older] button:hover::after{background:var(--ja-gold);width:48px}
+body.ja-skin [class*=icaHSq_toBottom]{background:var(--ja-paper)!important;border:1px solid var(--ja-line-2)!important;color:var(--ja-ink-2)!important;box-shadow:0 8px 18px -12px rgba(40,32,20,.4)!important;transition:border-color .2s,color .2s,transform .2s}
+body.ja-skin [class*=icaHSq_toBottom]:hover{border-color:var(--ja-gold)!important;color:var(--ja-gold-deep)!important;transform:translateY(1px)}
