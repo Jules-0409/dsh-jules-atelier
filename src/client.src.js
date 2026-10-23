@@ -457,6 +457,26 @@ function LedgerChip({ sessionId }) {
     pop.open ? portal(h("div", { ref: pop.panel, className: "ja-root ja-panel", role: "dialog", "aria-label": "Ledger", style: pop.pos || { visibility: "hidden", left: 0, top: 0 } },
       h(LedgerPanel, { session, d, s, onSettings: null }))) : null);
 }
+function SessionHover({ sessionId }) {
+  const st = useStore(), s = st.settings;
+  if (!s.skin || !st.usage) return null;
+  const x = st.usage.sessions.find((v) => v.id === sessionId);
+  if (!x) return null;
+  const tok = bagTokens(x.by), cost = bagCost(x.by, s), ctx = x.ctxWin ? Math.min(100, (x.ctxUsed / x.ctxWin) * 100) : 0;
+  const dir = (x.cwd || "").replace(/^\/Users\/[^/]+|^\/home\/[^/]+|^[A-Z]:\\Users\\[^\\]+/i, "~");
+  const dt = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}月${d.getDate()}日`; };
+  const row = (k, v) => h("div", { className: "ja-hv-row" }, h("span", null, k), h("b", null, v));
+  const work = [x.turns ? `${x.turns} 轮` : "", x.tools ? `${x.tools} 次工具` : "", x.files ? `改 ${x.files} 个文件` : ""].filter(Boolean).join(" · ");
+  return h("div", { className: "ja-root ja-hv" },
+    x.ask ? h("div", { className: "ja-hv-ask" }, h("span", { className: "ja-caps" }, "最近一问"), h("p", null, x.ask)) : null,
+    h("div", { className: "ja-hv-grid" },
+      x.model ? row("模型", x.model) : null,
+      work ? row("工作", work) : null,
+      tok ? row("花费", `${money(cost, s)} · ${fmt(tok)} tok`) : null,
+      x.ctxWin ? h("div", { className: "ja-hv-row" }, h("span", null, "上下文"), h("b", null, h("i", { className: "ja-hv-bar" + (ctx > 85 ? " ja-warn" : "") }, h("i", { style: { width: `${ctx}%` } })), `${Math.round(ctx)}%${x.compactions ? ` · 压缩 ${x.compactions} 次` : ""}`)) : null,
+      dir ? row("目录", dir) : null,
+      x.created ? row("开始", dt(x.created) + (x.last && dt(x.last) !== dt(x.created) ? ` → ${dt(x.last)}` : "")) : null));
+}
 function SideLedger() {
   const st = useStore(), s = st.settings, d = derive(st.usage, s), pop = usePopover();
   if (s.sideLedger === false || !st.usage) return null;
@@ -1033,6 +1053,7 @@ function apply(ctx) {
   reg("sidebar.brand.mark", { priority: -10 }, BrandMark);
   reg("sidebar.brand.name", { priority: -10 }, BrandName);
   reg("conversation.composer.dock", { id: "jules-atelier-ledger", order: 90, inject: (sessionId) => ({ sessionId }) }, LedgerChip);
+  reg("sidebar.session.row.hover", { id: "jules-atelier-hover", order: 50 }, SessionHover);
   reg("sidebar.footer.action", { id: "jules-atelier-ledger", order: -10 }, SideLedger);
   reg("settings.section", { id: "jules-atelier", order: 60, label: "Atelier" }, AtelierSettings);
 }
