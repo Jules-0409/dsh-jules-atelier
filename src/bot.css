@@ -1,0 +1,87 @@
+/* ============ Atelier theme for DS Bot (only active while DS Bot's theme is "atelier") ============ */
+html body{--bt-line:#E2DACB;--bt-line-2:#D5CAB6;--bt-hover:rgba(164,134,89,.07);--bt-active:rgba(164,134,89,.13);--bt-tag-bg:rgba(164,134,89,.10);--bt-tag-ink:#7E6440;--bt-ink-deepseek:#A48659;--bt-star:#C29A4E}
+html body[data-ds-dark-theme]{--bt-line:#2E2C28;--bt-line-2:#3A3732;--bt-hover:rgba(195,165,116,.07);--bt-active:rgba(195,165,116,.13);--bt-tag-bg:rgba(195,165,116,.10);--bt-tag-ink:#D9BE8E;--bt-ink-deepseek:#C3A574;--bt-star:#D9B36A}
+
+/* ---------- sidebar: masthead + roster ---------- */
+body.ja-skin .bt-brand{font-family:var(--ja-serif);font-size:22px;font-weight:600;letter-spacing:.01em}
+body.ja-skin .bt-side-top{position:relative}
+body.ja-skin .bt-side-top:after{content:"";position:absolute;left:4px;right:4px;bottom:-4px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2) 18%,var(--bt-line-2) 82%,transparent)}
+body.ja-skin .bt-round,body.ja-skin .bt-connect{background:var(--bt-main);border:1px solid var(--bt-line-2)!important;box-shadow:0 1px 2px rgba(60,45,25,.06)}
+body.ja-skin .bt-round:hover,body.ja-skin .bt-connect:hover{border-color:var(--bt-accent)!important}
+body.ja-skin .bt-list{gap:0}
+body.ja-skin .bt-tile-wrap{padding:22px 0 16px;position:relative}
+body.ja-skin .bt-tile-wrap:after{content:"";position:absolute;left:18px;right:18px;bottom:4px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2) 20%,var(--bt-line-2) 80%,transparent)}
+body.ja-skin .bt-tile{width:auto;min-width:120px;gap:3px;padding:6px 14px 8px;background:none!important;border-radius:0}
+body.ja-skin .bt-tile>.bt-mark{border-radius:50%;box-shadow:0 0 0 1px var(--bt-line-2),0 0 0 5px var(--bt-main),0 0 0 6px var(--bt-line);transition:box-shadow .3s var(--ja-ease);margin-bottom:8px}
+body.ja-skin .bt-tile[aria-current=page]>.bt-mark,body.ja-skin .bt-tile:hover>.bt-mark{box-shadow:0 0 0 1px var(--bt-accent),0 0 0 5px var(--bt-main),0 0 0 6px var(--ja-gold-soft)}
+body.ja-skin .bt-tile-name{font-family:var(--ja-serif);font-size:19px;line-height:22px;font-weight:600;letter-spacing:.01em;max-width:200px}
+body.ja-skin .bt-tile .bt-chip{border:0!important;background:none!important;padding:0;max-width:200px;font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--bt-tag-ink)}
+body.ja-skin .bt-row{border-radius:0;min-height:52px;padding:8px 10px;gap:10px;position:relative;transition:background .2s}
+body.ja-skin .bt-row:not(:last-child):after{content:"";position:absolute;left:56px;right:8px;bottom:0;height:1px;background:var(--bt-line);opacity:.8}
+body.ja-skin .bt-row:hover{background:var(--bt-hover)}
+body.ja-skin .bt-row[aria-current=page]{background:var(--bt-main);box-shadow:inset 2px 0 0 var(--bt-accent)}
+body.ja-skin .bt-row-name{font-family:var(--ja-serif);font-size:16px;line-height:20px;font-weight:600;letter-spacing:.01em}
+body.ja-skin .bt-row-preview{font-size:12px;line-height:17px;color:var(--bt-ink-3)}
+body.ja-skin .bt-row[aria-current=page] .bt-row-preview{color:var(--bt-ink-2)}
+body.ja-skin .bt-unread{width:6px;height:6px;background:var(--bt-accent);box-shadow:0 0 0 3px var(--ja-gold-soft)}
+body.ja-skin .bt-unread-wait{background:var(--bt-star)}
+body.ja-skin .bt-section-title{font-size:9.5px!important;font-weight:600!important;letter-spacing:.2em;text-transform:uppercase;color:var(--ja-gold-deep)!important}
+
+/* ---------- chat header: a masthead instead of a pill ---------- */
+body.ja-skin .bt-head{position:relative}
+body.ja-skin .bt-head:after{content:"";position:absolute;left:12%;right:12%;bottom:-8px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2) 25%,var(--bt-line-2) 75%,transparent);pointer-events:none}
+body.ja-skin .bt-pill{background:transparent!important;border:0!important;box-shadow:none!important;gap:8px}
+body.ja-skin .bt-pill:hover{background:var(--bt-hover)!important}
+body.ja-skin .bt-pill-name{font-family:var(--ja-serif);font-size:20px;font-weight:600;letter-spacing:.01em}
+body.ja-skin .bt-pill-mem-in{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ja-gold-deep)}
+body.ja-skin .bt-pill-mem-ico{color:var(--bt-accent)}
+
+/* ---------- conversation ---------- */
+body.ja-skin .bt-time{display:flex;align-items:center;justify-content:center;gap:12px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;padding:10px 0}
+body.ja-skin .bt-time:before,body.ja-skin .bt-time:after{content:"";width:56px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2))}
+body.ja-skin .bt-time:after{transform:scaleX(-1)}
+body.ja-skin .bt-new-sep{font-family:var(--ja-sans);font-size:9.5px;letter-spacing:.2em;color:var(--ja-gold-deep)}
+body.ja-skin .bt-new-sep:before,body.ja-skin .bt-new-sep:after{background:linear-gradient(90deg,transparent,var(--bt-accent))}
+body.ja-skin .bt-new-sep:after{transform:scaleX(-1)}
+body.ja-skin .bt-bubble{border-radius:12px!important;border-start-start-radius:4px!important;border:1px solid var(--bt-line);box-shadow:0 1px 2px rgba(60,45,25,.04)}
+body.ja-skin .bt-ububble,body.ja-skin [data-chat-flow-kind=question-reply] [class*="_bubble"],body.ja-skin [data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-card)!important;color:var(--bt-ink)!important;border:1px solid var(--bt-line-2)!important;border-radius:12px!important;box-shadow:var(--ja-shadow)}
+body.ja-skin .bt-group-name{font-family:var(--ja-serif);font-size:15px;font-weight:600;letter-spacing:.01em}
+body.ja-skin .bt-group-time,body.ja-skin .bt-group-took{font-family:var(--ja-sans);font-size:10.5px;letter-spacing:.06em;color:var(--bt-ink-3)}
+body.ja-skin .bt-group-role{font-family:var(--ja-sans);background:none;border:1px solid var(--bt-line-2);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;padding:0 5px;color:var(--ja-gold-deep)}
+body.ja-skin .bt-think{font-size:12.5px;color:var(--bt-ink-3)}
+body.ja-skin .bt-think-text{border-left:1px solid var(--bt-accent);padding-left:12px;color:var(--bt-ink-2);line-height:1.7}
+body.ja-skin .bt-tools{background:var(--bt-main);border:1px solid var(--bt-line-2);box-shadow:0 6px 18px -10px rgba(60,45,25,.35)}
+
+/* flat layout: an editorial column. Bot text sits on a hairline rule, your words read as a pull quote. */
+body.ja-skin[data-bt-layout=flat] .bt-bubble{border:0!important;box-shadow:none;border-radius:0!important;padding:2px 0 2px 18px!important;position:relative;line-height:1.8}
+body.ja-skin[data-bt-layout=flat] .bt-bubble:before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:1px;background:linear-gradient(var(--bt-accent),var(--bt-line-2) 40px,var(--bt-line) 70%,transparent)}
+body.ja-skin[data-bt-layout=flat] .bt-ububble{background:transparent!important;border:0!important;box-shadow:none!important;border-radius:0!important;padding:2px 16px 2px 0!important;border-right:1px solid var(--bt-accent)!important;color:var(--bt-ink-2)!important;font-size:15px;line-height:1.75;text-align:left}
+body.ja-skin[data-bt-layout=flat] .bt-group-msg{margin-top:22px}
+body.ja-skin[data-bt-layout=flat] .bt-group-name{margin-bottom:6px}
+
+/* composer chips */
+body.ja-skin .bt-model-chip{border:1px solid var(--bt-line-2)!important;background:var(--bt-main)}
+body.ja-skin .bt-model-chip:hover{border-color:var(--bt-accent)!important;color:var(--ja-gold-deep)}
+body.ja-skin .bt-model-choice-provider{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--bt-ink-3)}
+body.ja-skin .bt-plus,body.ja-skin .bt-mic{background:transparent;border:1px solid var(--bt-line)}
+
+/* ---------- settings: paper and hairlines, no cards ---------- */
+body.ja-skin .bt-scrim{background:rgba(46,42,36,.26);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+body.ja-skin .bt-settings{border:1px solid var(--bt-line-2)!important;border-radius:14px;box-shadow:var(--ja-shadow-lift);background-image:var(--ja-grain)}
+body.ja-skin .bt-settings-nav{border-right:1px solid var(--bt-line)}
+body.ja-skin .bt-settings-item[aria-current],body.ja-skin .bt-settings-nav .bt-thumb{border-radius:0}
+body.ja-skin .bt-settings-nav .bt-thumb{background:var(--bt-main)!important;box-shadow:inset 2px 0 0 var(--bt-accent)}
+body.ja-skin .bt-seg .bt-thumb{background:var(--bt-main)!important;box-shadow:0 0 0 1px var(--bt-line-2);border-radius:8px}
+body.ja-skin .bt-settings-head,body.ja-skin .bt-settings-head *{font-family:var(--ja-serif);font-size:24px;font-weight:600;letter-spacing:.01em}
+body.ja-skin .bt-set-section>h2,body.ja-skin .bt-set-section>h3,body.ja-skin .bt-set-section>header,body.ja-skin .bt-settings-page .bt-section-title{font-size:9.5px!important;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--ja-gold-deep)!important}
+body.ja-skin .bt-set-card{background:transparent!important;border:0!important;border-top:1px solid var(--bt-line-2)!important;border-bottom:1px solid var(--bt-line-2)!important;border-radius:0!important;box-shadow:none!important}
+body.ja-skin .bt-set-row{border-radius:0!important;padding-left:2px;padding-right:2px}
+body.ja-skin .bt-set-row+.bt-set-row{border-top:1px solid var(--bt-line)}
+body.ja-skin .bt-select,body.ja-skin .bt-input{border:1px solid var(--bt-line-2)!important;background:var(--bt-main)}
+body.ja-skin .bt-select:focus,body.ja-skin .bt-input:focus{border-color:var(--bt-accent)!important;outline:none;box-shadow:0 0 0 3px var(--ja-gold-soft)}
+body.ja-skin .bt-seg{background:transparent;box-shadow:inset 0 0 0 1px var(--bt-line-2)}
+body.ja-skin .bt-switch[aria-checked=true]{background:var(--bt-accent)}
+body.ja-skin .bt-menu{border:1px solid var(--bt-line-2)!important;border-radius:10px;box-shadow:var(--ja-shadow-lift)}
+body.ja-skin .bt-scrim+*,body.ja-skin .bt-dialog{border-radius:14px}
+/* the opening date line DS Bot draws above a chat */
+body.ja-skin [class*="_scroll"]>[class*="_column"]::before{font-size:10px;letter-spacing:.18em;color:var(--bt-ink-3);font-variant-numeric:tabular-nums;background:linear-gradient(90deg,transparent calc(50% - 132px),var(--bt-line-2) calc(50% - 132px),var(--bt-line-2) calc(50% - 72px),transparent calc(50% - 72px),transparent calc(50% + 72px),var(--bt-line-2) calc(50% + 72px),var(--bt-line-2) calc(50% + 132px),transparent calc(50% + 132px)) center/100% 1px no-repeat}

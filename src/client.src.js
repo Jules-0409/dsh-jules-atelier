@@ -175,7 +175,7 @@ async function refresh(fresh) {
 }
 async function loadSettings() {
   try { store.settings = { ...DEFAULTS, ...(await api("settings/get")) }; } catch (e) { console.warn("jules-atelier: settings failed", e); }
-  store.loaded = true; applyBodyFlags(); emit();
+  store.loaded = true; applyBodyFlags(); syncPalette(); syncBotTheme(); emit();
 }
 /* ---------------- self-update (host checks GitHub, replaces the plugin folder) ---------------- */
 const upd = { info: null, busy: false, err: "" };
@@ -884,6 +884,7 @@ function syncPalette() {
   try { t = CTX.theme.overrideTokens(name, p.tokens) || (() => {}); } catch (e) { console.error("jules-atelier: palette", e); }
   palKey = k; palOff = { all: () => { b(); c(); t(); } };
   document.body.classList.toggle("ja-pal-ink", k === "ink");
+  syncBotTheme();
 }
 function dropPalette() { if (palOff) palOff.all(); palOff = null; palKey = null; document.body && document.body.classList.remove("ja-pal-ink"); }
 
@@ -1046,56 +1047,28 @@ function stopSea() { if (seaMo) seaMo.disconnect(); seaMo = null; clearTimeout(s
  * DS Bot (ds-bot) paints the whole window from its own theme. Instead of fighting
  * it, offer it two themes through its public hub (window.dshBotQueue): Atelier's
  * paper & gold and ink & celadon. They show up in DS Bot → 通用 → 主题. */
-const BOT_CSS = `
-html body{--bt-line:#E2DACB;--bt-line-2:#D5CAB6;--bt-hover:rgba(164,134,89,.08);--bt-active:rgba(164,134,89,.15);--bt-tag-bg:rgba(164,134,89,.10);--bt-tag-ink:#7E6440;--bt-ink-deepseek:#A48659;--bt-star:#C29A4E}
-html body[data-ds-dark-theme]{--bt-line:#2E2C28;--bt-line-2:#3A3732;--bt-hover:rgba(195,165,116,.08);--bt-active:rgba(195,165,116,.15);--bt-tag-bg:rgba(195,165,116,.10);--bt-tag-ink:#D9BE8E;--bt-ink-deepseek:#C3A574;--bt-star:#D9B36A}
-body.ja-skin .bt-brand{font-family:var(--ja-serif);font-size:21px;font-weight:600;letter-spacing:.01em}
-body.ja-skin .bt-side-top{position:relative}
-body.ja-skin .bt-side-top:after{content:"";position:absolute;left:4px;right:4px;bottom:-4px;height:1px;background:linear-gradient(90deg,transparent,var(--bt-line-2) 18%,var(--bt-line-2) 82%,transparent)}
-body.ja-skin .bt-round,body.ja-skin .bt-connect{background:var(--bt-main);border:1px solid var(--bt-line-2)!important;box-shadow:0 1px 2px rgba(60,45,25,.06)}
-body.ja-skin .bt-round:hover,body.ja-skin .bt-connect:hover{border-color:var(--bt-accent)!important}
-body.ja-skin .bt-tile{border-radius:10px;transition:background .25s,box-shadow .25s}
-body.ja-skin .bt-tile[aria-current],body.ja-skin .bt-tile[aria-pressed=true],body.ja-skin .bt-tile[data-active]{box-shadow:inset 0 0 0 1px var(--bt-line-2)}
-body.ja-skin .bt-tile-name{font-family:var(--ja-serif);font-size:15px;font-weight:600;letter-spacing:.01em}
-body.ja-skin .bt-chip{border:0!important;background:none!important;max-width:none!important;overflow:visible!important;font-size:9px;letter-spacing:.06em;white-space:nowrap;text-transform:uppercase;color:var(--bt-tag-ink)}
-body.ja-skin .bt-pill{background:var(--bt-main);border:1px solid var(--bt-line-2)!important;box-shadow:0 1px 2px rgba(60,45,25,.05),0 10px 24px -18px rgba(60,45,25,.4)}
-body.ja-skin .bt-pill-name{font-family:var(--ja-serif);font-size:16px;font-weight:600;letter-spacing:.01em}
-body.ja-skin .bt-bubble{border-radius:12px!important;border-start-start-radius:4px!important;border:1px solid var(--bt-line);box-shadow:0 1px 2px rgba(60,45,25,.04)}
-body.ja-skin .bt-ububble,body.ja-skin [data-chat-flow-kind=question-reply] [class*="_bubble"],body.ja-skin [data-chat-flow-kind=command-input] [class*="_bubble"]{background:var(--bt-card)!important;color:var(--bt-ink)!important;border:1px solid var(--bt-line-2)!important;border-radius:12px!important;box-shadow:var(--ja-shadow)}
-body.ja-skin .bt-model-chip{border:1px solid var(--bt-line-2)!important;background:var(--bt-main)}
-body.ja-skin .bt-model-chip:hover{border-color:var(--bt-accent)!important;color:var(--ja-gold-deep)}
-body.ja-skin .bt-model-choice-provider{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--bt-ink-3)}
-body.ja-skin .bt-plus,body.ja-skin .bt-mic{background:transparent;border:1px solid var(--bt-line)}
-body.ja-skin .bt-scrim{background:rgba(46,42,36,.28);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
-body.ja-skin .bt-settings{border:1px solid var(--bt-line-2)!important;border-radius:14px;box-shadow:var(--ja-shadow-lift);background-image:var(--ja-grain)}
-body.ja-skin .bt-settings-nav{border-right:1px solid var(--bt-line)}
-body.ja-skin .bt-settings-head,body.ja-skin .bt-settings-head *{font-family:var(--ja-serif);font-size:22px;font-weight:600;letter-spacing:.01em}
-body.ja-skin .bt-set-section>h2,body.ja-skin .bt-set-section>h3,body.ja-skin .bt-section-title{font-size:10.5px!important;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:var(--ja-gold-deep)!important}
-body.ja-skin .bt-set-card{border:1px solid var(--bt-line)!important;border-radius:10px;box-shadow:none}
-body.ja-skin .bt-set-row+.bt-set-row{border-top:1px solid var(--bt-line)}
-body.ja-skin .bt-select,body.ja-skin .bt-input{border:1px solid var(--bt-line-2)!important;background:var(--bt-main)}
-body.ja-skin .bt-select:focus,body.ja-skin .bt-input:focus{border-color:var(--bt-accent)!important;outline:none;box-shadow:0 0 0 3px var(--ja-gold-soft)}
-body.ja-skin .bt-switch[aria-checked=true]{background:var(--bt-accent)}
-body.ja-skin .bt-menu{border:1px solid var(--bt-line-2)!important;border-radius:10px;box-shadow:var(--ja-shadow-lift)}
-`;
-const BOT_THEMES = {
-  atelier: { label: "Atelier · 纸与金",
-    light: { bg: "#FAF8F3", sidebar: "#F1ECE1", bubble: "#F3EEE4", card: "#FFFDF8", text: "#2E2A24", user: "#2E2A24", userText: "#FAF8F3", accent: "#A48659" },
-    dark: { bg: "#22211E", sidebar: "#262420", bubble: "#2B2925", card: "#282622", text: "#ECE5D6", user: "#ECE5D6", userText: "#22211E", accent: "#C3A574" } },
-};
-BOT_THEMES["atelier-ink"] = { label: "Atelier · 墨与青",
-  light: Object.fromEntries(Object.entries(BOT_THEMES.atelier.light).map(([k, v]) => [k, inkify(v)])),
-  dark: Object.fromEntries(Object.entries(BOT_THEMES.atelier.dark).map(([k, v]) => [k, inkify(v)])) };
+const BOT_CSS = __BOTCSS__;
+const BOT_BASE = {
+  light: { bg: "#FAF8F3", sidebar: "#F1ECE1", bubble: "#F3EEE4", card: "#FFFDF8", text: "#2E2A24", user: "#2E2A24", userText: "#FAF8F3", accent: "#A48659" },
+  dark: { bg: "#22211E", sidebar: "#262420", bubble: "#2B2925", card: "#282622", text: "#ECE5D6", user: "#ECE5D6", userText: "#22211E", accent: "#C3A574" } };
+const inkMode = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, inkify(v)]));
+/* One DS Bot theme, "atelier", that always follows the Atelier palette (纸与金 / 墨与青). */
+let botHub = null, botOff = null, botKey = null;
+function botTheme() {
+  const ink = store.settings.palette === "ink";
+  return { label: "Atelier", light: ink ? inkMode(BOT_BASE.light) : BOT_BASE.light, dark: ink ? inkMode(BOT_BASE.dark) : BOT_BASE.dark, css: ink ? inkify(BOT_CSS) : BOT_CSS };
+}
+function syncBotTheme() {
+  if (!botHub) return;
+  const k = store.settings.palette === "ink" ? "ink" : "atelier";
+  if (k === botKey) return;
+  try { const off = botHub.registerTheme("atelier", botTheme()); if (!botOff) botOff = off; botKey = k; } catch (e) { console.warn("jules-atelier: ds-bot theme", e); }
+}
 function registerBotThemes() {
-  const offs = [];
-  const task = (hub) => {
-    for (const [id, t] of Object.entries(BOT_THEMES)) {
-      try { offs.push(hub.registerTheme(id, { ...t, css: id === "atelier" ? BOT_CSS : inkify(BOT_CSS) })); } catch (e) { console.warn("jules-atelier: ds-bot theme", e); }
-    }
-  };
+  const task = (hub) => { botHub = hub; botKey = null; syncBotTheme(); };
   if (window.dshBot && typeof window.dshBot.registerTheme === "function") task(window.dshBot);
   else { if (!window.dshBotQueue) window.dshBotQueue = []; window.dshBotQueue.push(task); }
-  return () => { offs.forEach((f) => { try { typeof f === "function" && f(); } catch {} }); };
+  return () => { try { typeof botOff === "function" && botOff(); } catch {} botHub = null; botOff = null; botKey = null; };
 }
 
 /* ---------------- plugin ---------------- */
