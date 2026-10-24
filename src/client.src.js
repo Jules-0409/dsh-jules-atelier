@@ -1064,11 +1064,58 @@ function syncBotTheme() {
   if (k === botKey) return;
   try { const off = botHub.registerTheme("atelier", botTheme()); if (!botOff) botOff = off; botKey = k; } catch (e) { console.warn("jules-atelier: ds-bot theme", e); }
 }
+/* Engraved Bot characters for DS Bot: a solid ink silhouette with paper-coloured
+ * engraving cuts, like a woodblock. Eyes are punched through by DS Bot's own mask. */
+const WHALE_D = "M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z";
+const cutLines = (id, d, y0, y1, step, w0, w1, rot) => {
+  let s = "";
+  for (let y = y0, i = 0; y <= y1; y += step, i++) {
+    const t = (y - y0) / Math.max(1, y1 - y0), w = (w0 + (w1 - w0) * t).toFixed(2);
+    s += `<path d="M-10 ${y.toFixed(1)}H110" stroke="#fff" stroke-opacity=".5" stroke-width="${w}"/>`;
+  }
+  return `<clipPath id="%MASK%${id}"><path d="${d}"/></clipPath><g clip-path="url(#%MASK%${id})"${rot ? ` transform="rotate(${rot} 50 50)"` : ""}>${s}</g>`;
+};
+const rays = (id, d, cx, cy, r0, r1, a0, a1, n, w) => {
+  let s = "";
+  for (let i = 0; i <= n; i++) {
+    const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180;
+    s += `<path d="M${(cx + r0 * Math.cos(a)).toFixed(1)} ${(cy + r0 * Math.sin(a)).toFixed(1)}L${(cx + r1 * Math.cos(a)).toFixed(1)} ${(cy + r1 * Math.sin(a)).toFixed(1)}" stroke="#fff" stroke-opacity=".5" stroke-width="${w}" stroke-linecap="round"/>`;
+  }
+  return `<clipPath id="%MASK%${id}"><path d="${d}"/></clipPath><g clip-path="url(#%MASK%${id})">${s}</g>`;
+};
+const LIGHTHOUSE = "M37 13L50 3.5L63 13ZM40 13H60V25H40ZM33 25H67V31H33ZM38.5 31H61.5L68 89Q50 95 32 89Z";
+const BOAT_SAIL = "M47 7L47 61L15 61Q30 36 47 7ZM53 17L53 61L80 61Q70 40 53 17Z";
+const BOAT = BOAT_SAIL + "M10 65H90L78 84Q50 90 22 84Z";
+const SHELL = (() => {
+  const cx = 50, cy = 84, R = 70, a0 = -152, a1 = -28, n = 7, P = (r, a) => [(cx + r * Math.cos(a * Math.PI / 180)).toFixed(1), (cy + r * Math.sin(a * Math.PI / 180)).toFixed(1)].join(" ");
+  let d = `M${cx} ${cy}L${P(R, a0)}`;
+  for (let i = 0; i < n; i++) { const s = a0 + (a1 - a0) * i / n, e = a0 + (a1 - a0) * (i + 1) / n; d += `Q${P(R + 9, (s + e) / 2)} ${P(R, e)}`; }
+  return d + "ZM41 83H59L57.5 92H42.5Z";
+})();
+const INKWELL = "M38 6H62V13H38ZM41 13H59V25H41ZM23 35Q23 25 33 25H67Q77 25 77 35V82Q77 91 68 91H32Q23 91 23 82Z";
+const ATELIER_SHAPES = {
+  etched: { label: "刻线鲸鱼", eyes: { at: [[72.5, 48.4], [85.6, 43.4]], w: 8.6, h: 21, tilt: -17 },
+    body: (p) => `<path d="${WHALE_D}" fill="${p}" fill-rule="evenodd"/>` + cutLines("w", WHALE_D, 58, 88, 3.6, 0.7, 1.7) },
+  lighthouse: { label: "灯塔", eyes: { at: [[44.5, 47], [55.5, 47]], w: 5.4, h: 11.5, tilt: 0 },
+    body: (p) => `<path d="${LIGHTHOUSE}" fill="${p}"/><path d="M43.5 15.5H56.5V22.5H43.5Z" fill="#fff" fill-opacity=".62"/>` + cutLines("l", "M38.5 31H61.5L68 89Q50 95 32 89Z", 60, 92, 4.2, 0.8, 1.8) },
+  sailboat: { label: "帆船", eyes: { at: [[43, 73.5], [57, 73.5]], w: 5.4, h: 10.5, tilt: 0 },
+    body: (p) => `<path d="${BOAT}" fill="${p}"/>` + cutLines("b", BOAT_SAIL, 12, 60, 3.8, 1.6, 0.6) },
+  shell: { label: "扇贝", eyes: { at: [[42.5, 50], [57.5, 50]], w: 6, h: 12.5, tilt: 0 },
+    body: (p) => `<path d="${SHELL}" fill="${p}"/>` + rays("s", SHELL, 50, 84, 10, 84, -152 + 124 / 14, -28 - 124 / 14, 6, 1.5) },
+  inkwell: { label: "墨水瓶", eyes: { at: [[42, 64], [58, 64]], w: 6, h: 13, tilt: 0 },
+    body: (p) => `<path d="${INKWELL}" fill="${p}"/>` + cutLines("i", "M23 35Q23 25 33 25H67Q77 25 77 35V48H23Z", 29, 46, 3.4, 1.7, 0.7) },
+};
 function registerBotThemes() {
-  const task = (hub) => { botHub = hub; botKey = null; syncBotTheme(); };
+  const shapeOffs = [];
+  const task = (hub) => {
+    botHub = hub; botKey = null; syncBotTheme();
+    if (typeof hub.registerShape === "function") for (const [id, sh] of Object.entries(ATELIER_SHAPES)) {
+      try { shapeOffs.push(hub.registerShape(id, { label: sh.label, size: 100, body: sh.body, eyes: sh.eyes })); } catch (e) { console.warn("jules-atelier: ds-bot shape", id, e); }
+    }
+  };
   if (window.dshBot && typeof window.dshBot.registerTheme === "function") task(window.dshBot);
   else { if (!window.dshBotQueue) window.dshBotQueue = []; window.dshBotQueue.push(task); }
-  return () => { try { typeof botOff === "function" && botOff(); } catch {} botHub = null; botOff = null; botKey = null; };
+  return () => { shapeOffs.forEach((f) => { try { typeof f === "function" && f(); } catch {} }); try { typeof botOff === "function" && botOff(); } catch {} botHub = null; botOff = null; botKey = null; };
 }
 
 /* ---------------- plugin ---------------- */
