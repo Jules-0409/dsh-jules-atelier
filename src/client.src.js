@@ -675,7 +675,7 @@ function NoteView({ note, onClose }) {
           h("button", { type: "button", className: "ja-nav", "aria-label": "上一个", onClick: () => step(-1) }, "‹"),
           h("h2", null, dateTitle(kind, day)),
           h("button", { type: "button", className: "ja-nav", "aria-label": "下一个", disabled: to >= today, onClick: () => step(1) }, "›")),
-        h("div", { className: "ja-orn", "aria-hidden": true }, h("i"), h("span", null, "❦"), h("i"))),
+        h("div", { className: "ja-orn", "aria-hidden": true }, h("i"), h("span", { className: "ja-orn-whale" }), h("i"))),
       err ? h("p", { className: "ja-lede" }, "读取失败：" + err) : !f ? h("p", { className: "ja-lede ja-dim" }, "正在翻页…") : h(React.Fragment, null,
         h("p", { className: "ja-lede" }, lede(kind, day, f)),
         f.sessions ? h(React.Fragment, null,
