@@ -1064,58 +1064,29 @@ function syncBotTheme() {
   if (k === botKey) return;
   try { const off = botHub.registerTheme("atelier", botTheme()); if (!botOff) botOff = off; botKey = k; } catch (e) { console.warn("jules-atelier: ds-bot theme", e); }
 }
-/* Engraved Bot characters for DS Bot: a solid ink silhouette with paper-coloured
- * engraving cuts, like a woodblock. Eyes are punched through by DS Bot's own mask. */
-const WHALE_D = "M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z";
-const cutLines = (id, d, y0, y1, step, w0, w1, rot) => {
-  let s = "";
-  for (let y = y0, i = 0; y <= y1; y += step, i++) {
-    const t = (y - y0) / Math.max(1, y1 - y0), w = (w0 + (w1 - w0) * t).toFixed(2);
-    s += `<path d="M-10 ${y.toFixed(1)}H110" stroke="#fff" stroke-opacity=".5" stroke-width="${w}"/>`;
-  }
-  return `<clipPath id="%MASK%${id}"><path d="${d}"/></clipPath><g clip-path="url(#%MASK%${id})"${rot ? ` transform="rotate(${rot} 50 50)"` : ""}>${s}</g>`;
+/* ASCII Bot characters for DS Bot: each body is drawn in monospace glyphs (generated from a
+ * silhouette with simple lighting), over a faint ink wash so the eyes still read. Rows carry --r so the
+ * glyphs can react to the Bot state (ripple while thinking, scan while searching, 0/1 churn while working). */
+const ASCII_GRID = { C: 20, R: 18 };
+const ASCII_SHAPES = {"ascii-whale":{"label":"字符鲸","d":"M65.3 20.9l5.1 .1 4.8 .9 4.8 1.7 4.3 2.3 3.8 3.1 3 3.4 2.3 3.8 1.6 4.3 .9 4.3 0 4.8-.8 4.8-1.4 4.3-2.3 4.3-3.2 4.3-3.4 3.3-4.3 3.1-7.2 3.5-7.6 1.7-7.2 .1-9.6-1.6-3.3-1-2.9-1.7-8.8-8.9-6-4.7-3.3-.5-7.7 1.1-4.8-.1-4.7-1.2-1.9-1.2-1-1-.5-1.5 .4-1.4 1.1-1.3 1.9-1.3 4.7-1.5 7.7-.6 1.1-.5 .7-1 0-1.4-2.8-7.2-1.2-5.3-.1-4.3 .4-1.4 .9-1.2 1.9-.2 2 1 2.2 2.3 2.2 3.4 3.2 7.6 1.9 9.7 .5-.1 1.1-7.2 1.8-4.8 3.2-5.2 3.9-4.3 4.9-3.9 5.6-2.9 5.8-1.9z","eyes":{"at":[[72.5,48.4],[85.6,43.4]],"w":8,"h":17,"tilt":-17},"rows":["                    ","                    ","                    ","                    ","          .--=*x+   ","   .:   ..::-+*x#@  ","   ..: ..::-***x&@& ","    :- .--=x%xx#&@@ ","    --:=-=x%%%##@@@ "," .-++*x+*x%%%##@@@@ "," *%#@@&#####&&@@@@@ ","      &@@@@@@@@@@@  ","       %@@@@@@@@@*  ","        +@@@@@@#    ","            +       ","                    ","                    ","                    "],"alt":["                    ","                    ","                    ","                    ","          1110000   ","   11   0111000011  ","   100 011100001110 ","    00 111000011100 ","    001110000111000 "," 000011100001110000 "," 000111000011100001 ","      000011100001  ","       00111000011  ","        11100001    ","            0       ","                    ","                    ","                    "]},"ascii-cat":{"label":"字符猫","d":"M16 46 L20 10 L44 28 Q50 27 56 28 L80 10 L84 46 Q90 60 84 72 Q74 90 50 90 Q26 90 16 72 Q10 60 16 46Z","eyes":{"at":[[37,58],[63,58]],"w":7,"h":15,"tilt":0},"rows":["                    ","                    ","    :          x    ","    .:-      .+%    ","   ..:**    :-+@*   ","   ..-=+*+-:-=%@%   ","   .-:=**=-==*@@#   ","   -:-*x*+*+*#@@@   ","   :-+xxx%xx##@@@   ","   -=**x%x%###@@@=  ","  .+++x%%%##%#@@@x  ","  :***%%%##%#@@@@*  ","   x%###&&#&@@@@@   ","   +@@@@@@@@@@@@x   ","    x@@@@@@@@@@%    ","      @@@@@@@@      ","                    ","                    "],"alt":["                    ","                    ","    0          1    ","    001      111    ","   00111    11100   ","   01110000111000   ","   11100001110000   ","   11000011100001   ","   10000111000011   ","   000011100001110  ","  0000111000011100  ","  0001110000111000  ","   01110000111000   ","   11100001110000   ","    100001110000    ","      00111000      ","                    ","                    "]},"ascii-jelly":{"label":"字符水母","d":"M12 54 Q12 12 50 12 Q88 12 88 54 Q80 50 72 54 Q64 50 56 54 Q50 50 44 54 Q36 50 28 54 Q20 50 12 54ZM19 50 q-5 9 0 18 q5 9 0 18 l3 4 q6 -11 1 -22 q-5 -9 1 -18zM33 50 q-5 9 0 18 q5 9 0 18 l3 4 q6 -11 1 -22 q-5 -9 1 -18zM47 50 q-5 9 0 18 q5 9 0 18 l3 4 q6 -11 1 -22 q-5 -9 1 -18zM61 50 q-5 9 0 18 q5 9 0 18 l3 4 q6 -11 1 -22 q-5 -9 1 -18zM75 50 q-5 9 0 18 q5 9 0 18 l3 4 q6 -11 1 -22 q-5 -9 1 -18z","eyes":{"at":[[39,36],[61,36]],"w":7,"h":14,"tilt":0},"rows":["                    ","                    ","       .-:-+=:      ","     ..::-=++x#     ","    ..::-+++*%#@    ","   ..:-=*x**%%#@@   ","   .-=*%#%%&##@@@   ","  .=+x@@@@@@@@@@@x  ","  =*#@@@@@@@@@@@@%  ","  -x%@&*&@*@&*@%**  ","   %  @  @  # x*    ","   *= @  @  & =x    ","    x  x x= &  @    ","    %  &  % =* %    ","    %  @  & +x %    ","    #  # ** #  @    ","                    ","                    "],"alt":["                    ","                    ","       1110000      ","     0111000011     ","    011100001110    ","   01110000111000   ","   11100001110000   ","  1110000111000011  ","  1100001110000111  ","  1000011100001110  ","   0  1  0  0 11    ","   00 1  0  1 10    ","    1  0 00 1  0    ","    1  0  1 10 0    ","    1  0  1 00 0    ","    0  0 11 0  1    ","                    ","                    "]},"ascii-drop":{"label":"字符墨滴","d":"M50 6 C58 20 84 42 84 62 A34 32 0 0 1 16 62 C16 42 42 20 50 6Z","eyes":{"at":[[39,62],[61,62]],"w":7,"h":15,"tilt":0},"rows":["                    ","          .         ","         :+         ","        .-+%        ","       .::+#@       ","      .::=x#&@      ","     .:.-*%%#@#     ","    .:.-*xx%&&@x    ","    :.-*xxx#%&@@    ","   :::+xxx#%%@@@x   ","   :-=*xx#%%#@@@@   ","   =+**x#%%#&@@@@   ","   +xxx#%%&&&@@@&   ","    %#&##@@@@@@@+   ","    x@@@@@@@@@@&    ","     x@@@@@@@@#     ","       #@@@@%       ","                    "],"alt":["                    ","          1         ","         11         ","        1110        ","       111000       ","      11100001      ","     1110000111     ","    111000011100    ","    110000111000    ","   11000011100001   ","   10000111000011   ","   00001110000111   ","   00011100001110   ","    0111000011100   ","    111000011100    ","     1000011100     ","       001110       ","                    "]},"ascii-cloud":{"label":"字符云","d":"M24 82 A18 18 0 0 1 20 46 A22 22 0 0 1 52 26 A22 22 0 0 1 84 46 A18 18 0 0 1 80 82Z","eyes":{"at":[[41,58],[59,58]],"w":7,"h":14,"tilt":0},"rows":["                    ","                    ","                    ","                    ","      ..:-:-=+      ","     ...-=-=+*%%    ","    ...-===++x&@+   ","    ..-++*x*x%&@@   ","   ..-+**%xx###&@%  "," ...-++x%x%##%#&&&@ "," ..-+*x#%%##%#&##@@&"," =+*x%&##&&&&@&&@@@@"," x##@@@@@@@@@@@@@@@@"," *@@@@@@@@@@@@@@@@@+","  =@@@@@@@@@@@@@@@  ","                    ","                    ","                    "],"alt":["                    ","                    ","                    ","                    ","      11000011      ","     11000011100    ","    1100001110000   ","    1000011100001   ","   100001110000111  "," 110000111000011100 "," 1000011100001110000"," 0000111000011100001"," 0001110000111000011"," 0011100001110000111","  1110000111000011  ","                    ","                    ","                    "]},"ascii-term":{"label":"字符终端","d":"M22 12 H78 Q90 12 90 24 V76 Q90 88 78 88 H22 Q10 88 10 76 V24 Q10 12 22 12Z","eyes":{"at":[[37,52],[63,52]],"w":8,"h":16,"tilt":0},"rows":["                    ","                    ","   .:::---==--++x   ","  ...:---==--++*&@  ","  :..=-=++==++*#@@  ","  ::==+xx**x**%@@@  ","  -==+x%xx%xx##@@@  ","  =-=x%xx%x%###@@@  ","  --*xxx%x%##%#@@@  ","  -+**x%x%##%%&@@@  ","  +++*%x%##%%&#@@@  ","  +=+%x%##%%&#&@@@  ","  ++x%#&&##@&&@@@@  ","  *##@@@@@@@@@@@@@  ","  &@@@@@@@@@@@@@@@  ","   @@@@@@@@@@@@@@=  ","                    ","                    "],"alt":["                    ","                    ","   00011100001110   ","  0001110000111000  ","  0011100001110000  ","  0111000011100001  ","  1110000111000011  ","  1100001110000111  ","  1000011100001110  ","  0000111000011100  ","  0001110000111000  ","  0011100001110000  ","  0111000011100001  ","  1110000111000011  ","  1100001110000111  ","   000011100001110  ","                    ","                    "]}};
+const asciiEsc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/ /g, "\u00a0");
+const asciiBody = (s) => (p) => {
+  const rh = 100 / ASCII_GRID.R, fs = (100 / ASCII_GRID.C / 0.6).toFixed(2);
+  const row = (t, r, cls, extra) => `<text class="${cls}" style="--r:${r}" x="0" y="${(r * rh + rh * 0.78).toFixed(1)}" textLength="100" lengthAdjust="spacing"${extra}>${asciiEsc(t)}</text>`;
+  return `<path class="ja-wash" d="${s.d}" fill="${p}" fill-opacity=".24"/><g class="ja-asc" fill="${p}" font-family="Menlo,SFMono-Regular,ui-monospace,monospace" font-size="${fs}" font-weight="700">${s.rows.map((t, r) => row(t, r, "ja-a", "")).join("")}${s.alt.map((t, r) => row(t, r, "ja-b", " opacity=\"0\"")).join("")}</g>`;
 };
-const rays = (id, d, cx, cy, r0, r1, a0, a1, n, w) => {
-  let s = "";
-  for (let i = 0; i <= n; i++) {
-    const a = (a0 + (a1 - a0) * i / n) * Math.PI / 180;
-    s += `<path d="M${(cx + r0 * Math.cos(a)).toFixed(1)} ${(cy + r0 * Math.sin(a)).toFixed(1)}L${(cx + r1 * Math.cos(a)).toFixed(1)} ${(cy + r1 * Math.sin(a)).toFixed(1)}" stroke="#fff" stroke-opacity=".5" stroke-width="${w}" stroke-linecap="round"/>`;
-  }
-  return `<clipPath id="%MASK%${id}"><path d="${d}"/></clipPath><g clip-path="url(#%MASK%${id})">${s}</g>`;
-};
-const LIGHTHOUSE = "M37 13L50 3.5L63 13ZM40 13H60V25H40ZM33 25H67V31H33ZM38.5 31H61.5L68 89Q50 95 32 89Z";
-const BOAT_SAIL = "M47 7L47 61L15 61Q30 36 47 7ZM53 17L53 61L80 61Q70 40 53 17Z";
-const BOAT = BOAT_SAIL + "M10 65H90L78 84Q50 90 22 84Z";
-const SHELL = (() => {
-  const cx = 50, cy = 84, R = 70, a0 = -152, a1 = -28, n = 7, P = (r, a) => [(cx + r * Math.cos(a * Math.PI / 180)).toFixed(1), (cy + r * Math.sin(a * Math.PI / 180)).toFixed(1)].join(" ");
-  let d = `M${cx} ${cy}L${P(R, a0)}`;
-  for (let i = 0; i < n; i++) { const s = a0 + (a1 - a0) * i / n, e = a0 + (a1 - a0) * (i + 1) / n; d += `Q${P(R + 9, (s + e) / 2)} ${P(R, e)}`; }
-  return d + "ZM41 83H59L57.5 92H42.5Z";
-})();
-const INKWELL = "M38 6H62V13H38ZM41 13H59V25H41ZM23 35Q23 25 33 25H67Q77 25 77 35V82Q77 91 68 91H32Q23 91 23 82Z";
-const ATELIER_SHAPES = {
-  etched: { label: "刻线鲸鱼", eyes: { at: [[72.5, 48.4], [85.6, 43.4]], w: 8.6, h: 21, tilt: -17 },
-    body: (p) => `<path d="${WHALE_D}" fill="${p}" fill-rule="evenodd"/>` + cutLines("w", WHALE_D, 58, 88, 3.6, 0.7, 1.7) },
-  lighthouse: { label: "灯塔", eyes: { at: [[44.5, 47], [55.5, 47]], w: 5.4, h: 11.5, tilt: 0 },
-    body: (p) => `<path d="${LIGHTHOUSE}" fill="${p}"/><path d="M43.5 15.5H56.5V22.5H43.5Z" fill="#fff" fill-opacity=".62"/>` + cutLines("l", "M38.5 31H61.5L68 89Q50 95 32 89Z", 60, 92, 4.2, 0.8, 1.8) },
-  sailboat: { label: "帆船", eyes: { at: [[43, 73.5], [57, 73.5]], w: 5.4, h: 10.5, tilt: 0 },
-    body: (p) => `<path d="${BOAT}" fill="${p}"/>` + cutLines("b", BOAT_SAIL, 12, 60, 3.8, 1.6, 0.6) },
-  shell: { label: "扇贝", eyes: { at: [[42.5, 50], [57.5, 50]], w: 6, h: 12.5, tilt: 0 },
-    body: (p) => `<path d="${SHELL}" fill="${p}"/>` + rays("s", SHELL, 50, 84, 10, 84, -152 + 124 / 14, -28 - 124 / 14, 6, 1.5) },
-  inkwell: { label: "墨水瓶", eyes: { at: [[42, 64], [58, 64]], w: 6, h: 13, tilt: 0 },
-    body: (p) => `<path d="${INKWELL}" fill="${p}"/>` + cutLines("i", "M23 35Q23 25 33 25H67Q77 25 77 35V48H23Z", 29, 46, 3.4, 1.7, 0.7) },
-};
+const ATELIER_SHAPES = Object.fromEntries(Object.entries(ASCII_SHAPES).map(([id, s]) => [id, { label: s.label, eyes: s.eyes, body: asciiBody(s) }]));
 function registerBotThemes() {
   const shapeOffs = [];
   const task = (hub) => {
-    botHub = hub; botKey = null; syncBotTheme();
+    botHub = hub; botKey = null; syncBotTheme(); addStyle("ja-ascii", __ASCIICSS__);
     if (typeof hub.registerShape === "function") for (const [id, sh] of Object.entries(ATELIER_SHAPES)) {
       try { shapeOffs.push(hub.registerShape(id, { label: sh.label, size: 100, body: sh.body, eyes: sh.eyes })); } catch (e) { console.warn("jules-atelier: ds-bot shape", id, e); }
     }
   };
   if (window.dshBot && typeof window.dshBot.registerTheme === "function") task(window.dshBot);
   else { if (!window.dshBotQueue) window.dshBotQueue = []; window.dshBotQueue.push(task); }
-  return () => { shapeOffs.forEach((f) => { try { typeof f === "function" && f(); } catch {} }); try { typeof botOff === "function" && botOff(); } catch {} botHub = null; botOff = null; botKey = null; };
+  return () => { document.getElementById("ja-ascii")?.remove(); shapeOffs.forEach((f) => { try { typeof f === "function" && f(); } catch {} }); try { typeof botOff === "function" && botOff(); } catch {} botHub = null; botOff = null; botKey = null; };
 }
 
 /* ---------------- plugin ---------------- */

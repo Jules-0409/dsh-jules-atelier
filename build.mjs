@@ -10,6 +10,7 @@ const body = src
   .replace('__FONTS__', () => JSON.stringify(read('src/fonts.css')))
   .replace('__ICONS__', () => read('src/icons.json').trim())
   .replace('__SIG__', () => read('src/sig.json').trim())
+  .replace('__ASCIICSS__', () => JSON.stringify(read('src/ascii.css')))
   .replace('__BOTCSS__', () => JSON.stringify(read('src/bot.css').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\n\s*/g, '\n')))
   .replace('__PARTS__', () => JSON.stringify(read('src/parts.css')))
   .replace('__SKIN__', () => JSON.stringify(read('src/skin.css').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\n\s*/g, '\n')))
