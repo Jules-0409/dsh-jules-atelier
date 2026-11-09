@@ -307,7 +307,7 @@ function qrMatrix(str) {
   fcoords.push([8, 7], [8, 8], [7, 8]);
   for (let i = 5; i >= 0; i--) fcoords.push([i, 8]);
   for (let i = 0; i < 15; i++) {
-    const bit = (fmtBits >> i) & 1;
+    const bit = (fmtBits >> (14 - i)) & 1;
     const [r, c] = fcoords[i]; M[r][c] = bit;
     if (i < 7) M[N - 1 - i][8] = bit; else M[8][N - 15 + i] = bit;
   }
@@ -315,20 +315,22 @@ function qrMatrix(str) {
 }
 function QrSvg({ text, size }) {
   const M = React.useMemo(() => qrMatrix(text || "http://127.0.0.1"), [text]);
-  const N = M.length, pad = 2, V = N + pad * 2, sz = size || 132;
+  const N = M.length, pad = 4, V = N + pad * 2, sz = size || 136;
   let d = "";
   for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (M[r][c]) d += `M${c + pad} ${r + pad}h1v1h-1z`;
   return h("svg", { width: sz, height: sz, viewBox: `0 0 ${V} ${V}`, shapeRendering: "crispEdges", "aria-label": "QR Code" },
-    h("rect", { width: V, height: V, fill: "var(--ja-paper, #FAF8F3)" }),
-    h("path", { d, fill: "var(--ja-ink, #2E2A24)" }));
+    h("rect", { width: V, height: V, rx: 1.5, fill: "#FAF8F3" }),
+    h("path", { d, fill: "#1E1B16" }));
 }
 
 const rem = { info: null, busy: false, err: "" };
 async function remApi(payload) {
-  const r = await fetch("api/jules-atelier.remote", {
+  const opts = {
     credentials: "same-origin", cache: "no-store",
     ...(payload ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) } : {}),
-  });
+  };
+  let r = await fetch("api/jules-atelier.remote", opts);
+  if (r.status === 404) r = await fetch("/api/jules-atelier.remote", opts);
   const res = await r.json().catch(() => null);
   if (!res || !res.ok) throw new Error((res && res.error) || `HTTP ${r.status}`);
   rem.info = res.value; emit();
@@ -372,7 +374,10 @@ function PocketCard() {
       h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
         h("h5", null, "Pocket Atelier · 掌中工坊"),
         i ? h(Sw, { on: !!i.enabled, onChange: (v) => remAct({ enabled: v }), label: "Enable Pocket Atelier" }) : null),
-      h("p", null, rem.err ? "出错了：" + rem.err
+      h("p", null, rem.err
+        ? (/404/.test(rem.err)
+          ? "后台服务尚未加载新版本路由。请按 Cmd+Q 完全退出并重新打开 DeepSeek Harness 即可启用掌中工坊。"
+          : "出错了：" + rem.err)
         : i && !i.enabled ? "局域网遥控服务已关闭。开启后，同一 Wi-Fi 下的手机扫码即可远程对话、审批工具、切换会话与遥控主题。"
         : i && !(i.urls && i.urls.length) ? "当前未检测到局域网 IP（仅本机可访问）。请确认电脑已连接 Wi-Fi 或局域网。"
         : "手机与电脑连接同一 Wi-Fi，用相机或浏览器扫左侧二维码即可进入掌中工坊（自带一次性鉴权，无需装 App）。"),
@@ -542,11 +547,13 @@ async function tickBridge() {
   try {
     const { live, _apps } = collectLiveDom();
     const ack = pendingAck.splice(0, pendingAck.length);
-    const r = await fetch("api/jules-atelier.bridge", {
+    const opts = {
       method: "POST", credentials: "same-origin", cache: "no-store",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ live, ack }),
-    });
+    };
+    let r = await fetch("api/jules-atelier.bridge", opts);
+    if (r.status === 404) r = await fetch("/api/jules-atelier.bridge", opts);
     const res = r.ok ? await r.json().catch(() => null) : null;
     const cmds = (res && res.value && res.value.cmds) || (res && res.cmds);
     if (res && res.ok && Array.isArray(cmds)) {
