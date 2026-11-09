@@ -522,20 +522,43 @@ function selectDesktopSession(id, title) {
   }
   return false;
 }
+function readSnap(s) {
+  try {
+    if (!s) return null;
+    if (typeof s.getSnapshot === "function") return s.getSnapshot();
+    if (typeof s.get === "function") return s.get();
+  } catch {}
+  return null;
+}
 function startNewDesktopSession(cwdOrWsId) {
   try {
     const uiWs = CTX && CTX.get("uiWorkspace");
     const wsSvc = CTX && CTX.get("workspaces");
-    if (uiWs && wsSvc) {
-      const items = (wsSvc.list && wsSvc.list.get && wsSvc.list.get().items) || [];
+    const ssSvc = CTX && CTX.get("sessions");
+    if (wsSvc) {
+      const wsSnap = readSnap(wsSvc.list);
+      const items = (wsSnap && Array.isArray(wsSnap.items)) ? wsSnap.items : [];
       let ws = cwdOrWsId ? items.find((w) => w.workspaceId === cwdOrWsId || w.path === cwdOrWsId || base(w.path) === cwdOrWsId) : null;
       if (!ws && activeSessionId) ws = items.find((w) => (w.sessionIds || []).includes(activeSessionId));
       if (!ws) ws = items[0];
-      if (ws && typeof uiWs.createSession === "function") {
-        uiWs.createSession(ws.workspaceId).then((sid) => {
-          if (sid) { activeSessionId = sid; uiWs.openSession(sid); }
-        }).catch(() => {});
-        return true;
+      if (ws) {
+        if (isSplitPanelActive() && splitStore.panes.length) {
+          const target = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0];
+          if (target) {
+            connectPaneWorkspace(target.id, ws.workspaceId, true);
+            return true;
+          }
+        }
+        if (uiWs && typeof uiWs.startSession === "function") {
+          uiWs.startSession(ws.workspaceId);
+          return true;
+        }
+        if (ssSvc && typeof ssSvc.create === "function") {
+          ssSvc.create({ workspaceId: ws.workspaceId }).then((sid) => {
+            if (sid) { activeSessionId = sid; if (uiWs && typeof uiWs.openSession === "function") uiWs.openSession(sid); }
+          }).catch(() => {});
+          return true;
+        }
       }
     }
   } catch {}
@@ -578,6 +601,35 @@ function collectLiveDom() {
   }
   const apps = collectApprovals();
   const phase = (() => { try { return localStorage.getItem("ja-phase") || "auto"; } catch { return "auto"; } })();
+  const splitDom = (() => {
+    try {
+      const root = document.querySelector(".ja-split-root");
+      const slotErr = document.querySelector("[data-slot-error]");
+      const facErr = document.querySelector("[data-factory-error]");
+      if (!root) {
+        return {
+          mounted: false,
+          slotError: slotErr ? slotErr.getAttribute("data-slot-error") : null,
+          factoryError: facErr ? facErr.getAttribute("data-factory-error") : null,
+        };
+      }
+      const paneEls = [...root.querySelectorAll(".ja-split-pane")];
+      return {
+        mounted: true,
+        layout: root.querySelector(".ja-split-stage")?.getAttribute("data-layout") || "",
+        paneCount: paneEls.length,
+        panes: paneEls.map((el) => ({
+          active: el.classList.contains("ja-active"),
+          headText: (el.querySelector(".ja-sp-head")?.textContent || "").trim().slice(0, 120),
+          hasConversation: !!el.querySelector("[data-conversation-content]"),
+          hasComposer: !!el.querySelector("textarea, [contenteditable='true']"),
+          emptyState: (el.querySelector(".ja-sp-empty")?.textContent || "").trim().slice(0, 120),
+        })),
+        slotError: slotErr ? slotErr.getAttribute("data-slot-error") : null,
+        factoryError: facErr ? facErr.getAttribute("data-factory-error") : null,
+      };
+    } catch { return null; }
+  })();
   return {
     live: {
       sessionId: (cur && cur.id) || activeSessionId || "",
@@ -594,6 +646,9 @@ function collectLiveDom() {
       phase,
       splitActive: isSplitPanelActive(),
       splitCount: splitStore.panes.length,
+      splitActivePaneId: splitStore.activePaneId,
+      splitPanes: splitStore.panes.map((p, i) => ({ id: p.id, index: i, sessionId: p.sessionId, workspaceId: p.workspaceId })),
+      splitDom,
     },
     _apps: apps,
   };
@@ -614,15 +669,21 @@ function execRemoteCmd(cmd, apps) {
   else if (cmd.type === "newSession") { startNewDesktopSession(p.cwd || p.workspaceId); }
   else if (cmd.type === "selectSession") { selectDesktopSession(p.sessionId, p.title); }
   else if (cmd.type === "setWorkspace") { if (p.cwd) startNewDesktopSession(p.cwd); }
-  else if (cmd.type === "openSplit") { openSplitView(p.sessionId, p.workspaceId || p.cwd); }
-  else if (cmd.type === "closeSplit") { closeSplitView(); }
+  else if (cmd.type === "openSplit") {
+    if (p.count) setSplitCount(Number(p.count));
+    openSplitView(p.sessionId, p.workspaceId || p.cwd);
+    if (p.count) setSplitCount(Number(p.count));
+  }
+  else if (cmd.type === "closeSplit") { closeSplitView(p.sessionId); }
+  else if (cmd.type === "setSplitCount") { setSplitCount(Number(p.count) || 2); }
+  else if (cmd.type === "reloadWindow") { try { location.reload(); } catch {} }
   else if (cmd.type === "approve") {
     const hit = (apps || []).find((a) => a.id === p.id || a.index === p.index || a.label === p.label);
     if (hit && hit._el) hit._el.click();
   }
 }
 async function tickBridge() {
-  if (bridgeBusy || document.hidden) return;
+  if (bridgeBusy) return;
   bridgeBusy = true;
   try {
     const { live, _apps } = collectLiveDom();
@@ -1792,20 +1853,35 @@ const SPLIT_PANEL_ID = "jules-atelier-split";
 const ROMAN = ["I", "II", "III", "IV"];
 let paneSeq = 0, splitLoaded = false, splitBypass = false;
 const splitStore = {
-  panes: [], // [{ id, sessionId, workspaceId }]
+  panes: [], // [{ id, sessionId, workspaceId, _connecting }]
   activePaneId: "",
 };
+function nextPaneId() {
+  let id = "";
+  do {
+    id = "p-" + (++paneSeq);
+  } while (splitStore.panes.some((p) => p.id === id));
+  return id;
+}
 function loadSplitState() {
   if (splitLoaded) return;
   splitLoaded = true;
   try {
     const raw = JSON.parse(localStorage.getItem("ja-split-state") || "null");
     if (raw && Array.isArray(raw.panes) && raw.panes.length) {
-      splitStore.panes = raw.panes.slice(0, 4).map((p) => ({
-        id: String(p.id || ("p-" + (++paneSeq))),
-        sessionId: String(p.sessionId || ""),
-        workspaceId: String(p.workspaceId || ""),
-      }));
+      const seenIds = new Set();
+      splitStore.panes = raw.panes.slice(0, 4).map((p) => {
+        const m = /^p-(\d+)$/.exec(String(p.id || ""));
+        if (m) paneSeq = Math.max(paneSeq, Number(m[1]) || 0);
+        let pid = String(p.id || "");
+        if (!pid || seenIds.has(pid)) pid = "p-" + (++paneSeq);
+        seenIds.add(pid);
+        return {
+          id: pid,
+          sessionId: String(p.sessionId || ""),
+          workspaceId: String(p.workspaceId || ""),
+        };
+      });
       splitStore.activePaneId = String(raw.activePaneId || splitStore.panes[0].id);
     }
   } catch {}
@@ -1813,7 +1889,7 @@ function loadSplitState() {
 function saveSplitState() {
   try {
     localStorage.setItem("ja-split-state", JSON.stringify({
-      panes: splitStore.panes,
+      panes: splitStore.panes.map(({ id, sessionId, workspaceId }) => ({ id, sessionId, workspaceId })),
       activePaneId: splitStore.activePaneId,
     }));
   } catch {}
@@ -1822,22 +1898,37 @@ function saveSplitState() {
 function getHostWorkspaces() {
   try {
     const ws = CTX && CTX.get("workspaces");
-    if (ws && ws.list && typeof ws.list.get === "function") {
-      const st = ws.list.get();
-      if (st && Array.isArray(st.items)) return st.items;
-    }
+    const st = readSnap(ws && ws.list);
+    if (st && Array.isArray(st.items)) return st.items;
   } catch {}
   return [];
+}
+function getHostArchivedIds() {
+  try {
+    const ws = CTX && CTX.get("workspaces");
+    const st = readSnap(ws && ws.list);
+    const arch = st && st.archivedSessionIds;
+    if (arch instanceof Set) return arch;
+    if (Array.isArray(arch)) return new Set(arch);
+  } catch {}
+  return new Set();
 }
 function getHostSessions() {
   try {
     const ss = CTX && CTX.get("sessions");
-    if (ss && ss.list && typeof ss.list.get === "function") {
-      const st = ss.list.get();
-      if (st && st.byId) return st;
-    }
+    const st = readSnap(ss && ss.list);
+    if (st && st.byId) return st;
   } catch {}
-  return { ids: [], byId: {} };
+  return { phase: "pending", ids: [], byId: {} };
+}
+function getCurrentMainSessionId(ss) {
+  const sObj = ss || getHostSessions();
+  const byId = (sObj && sObj.byId) || {};
+  for (const row of Object.values(byId)) {
+    if (row && row.retainedBy && (row.retainedBy.mainView || 0) > 0) return row.id;
+  }
+  if (activeSessionId && (!sObj.ids || !sObj.ids.length || byId[activeSessionId])) return activeSessionId;
+  return "";
 }
 function wsOfSession(sessionId, wsItems) {
   if (!sessionId) return "";
@@ -1845,137 +1936,223 @@ function wsOfSession(sessionId, wsItems) {
   const hit = items.find((w) => Array.isArray(w.sessionIds) && w.sessionIds.includes(sessionId));
   if (hit) return hit.workspaceId;
   const byId = getHostSessions().byId;
-  if (byId && byId[sessionId] && byId[sessionId].workspaceId) return byId[sessionId].workspaceId;
+  const row = byId && byId[sessionId];
+  if (row && row.workspaceId) return row.workspaceId;
+  if (row && row.cwd) {
+    const byCwd = items.find((w) => w.path === row.cwd);
+    if (byCwd) return byCwd.workspaceId;
+  }
   return "";
 }
 function isSplitPanelActive() {
   try {
     const layout = CTX && CTX.get("layout");
-    if (layout && layout.activePanelId && typeof layout.activePanelId.get === "function") {
-      return layout.activePanelId.get() === SPLIT_PANEL_ID;
+    const info = readSnap(layout && (layout.panelInfo || layout.activePanelId));
+    if (info && typeof info === "object" && "activePanelId" in info) {
+      return info.activePanelId === SPLIT_PANEL_ID;
     }
+    if (typeof info === "string") return info === SPLIT_PANEL_ID;
   } catch {}
   return !!document.querySelector(".ja-split-root");
 }
+function pickWorkspaceSession(w, usedSessionIds, ss, archivedSet) {
+  if (!w || !Array.isArray(w.sessionIds)) return "";
+  const sObj = ss || getHostSessions();
+  const byId = sObj.byId || {};
+  const hasCatalog = Array.isArray(sObj.ids) && sObj.ids.length > 0;
+  const arch = archivedSet || getHostArchivedIds();
+  const validIds = w.sessionIds.filter((id) => id && !usedSessionIds.has(id) && !arch.has(id) && (!hasCatalog || !!byId[id]));
+  if (!validIds.length) return "";
+  const nonBlank = validIds.find((id) => byId[id] && !byId[id].blank);
+  return nonBlank || validIds[0] || "";
+}
 function connectPaneWorkspace(paneId, workspaceId, createFresh) {
   if (!workspaceId || !CTX) return;
+  const pane = splitStore.panes.find((p) => p.id === paneId);
+  if (pane && pane._connecting) return;
+  if (pane) pane._connecting = true;
   try {
     const uiWs = CTX.get("uiWorkspace");
-    if (!uiWs) return;
-    const fn = createFresh && typeof uiWs.createSession === "function"
-      ? () => uiWs.createSession(workspaceId)
-      : typeof uiWs.connectWorkspace === "function"
-        ? () => uiWs.connectWorkspace(workspaceId)
-        : null;
-    if (!fn) return;
-    fn().then((sid) => {
+    const ssSvc = CTX.get("sessions");
+    const wsItems = getHostWorkspaces();
+    const wsObj = wsItems.find((w) => w.workspaceId === workspaceId);
+    const usedS = new Set(splitStore.panes.filter((p) => p.id !== paneId).map((p) => p.sessionId).filter(Boolean));
+    const ss = getHostSessions();
+    const arch = getHostArchivedIds();
+    const freeBlank = !createFresh && wsObj && Array.isArray(wsObj.sessionIds)
+      ? wsObj.sessionIds.find((id) => id && !usedS.has(id) && !arch.has(id) && ss.byId && ss.byId[id] && ss.byId[id].blank)
+      : "";
+    let task = null;
+    if (ssSvc && typeof ssSvc.create === "function" && (createFresh || !uiWs || typeof uiWs.connectWorkspace !== "function")) {
+      task = ssSvc.create({ workspaceId, ...(freeBlank ? { sessionId: freeBlank } : {}) });
+    } else if (uiWs && typeof uiWs.connectWorkspace === "function") {
+      task = uiWs.connectWorkspace(workspaceId).then((sid) => {
+        if (sid && usedS.has(sid) && ssSvc && typeof ssSvc.create === "function") {
+          return ssSvc.create({ workspaceId });
+        }
+        return sid;
+      });
+    }
+    if (!task) { if (pane) pane._connecting = false; return; }
+    task.then((sid) => {
+      const p = splitStore.panes.find((x) => x.id === paneId);
+      if (p) p._connecting = false;
       if (!sid) return;
-      const pane = splitStore.panes.find((p) => p.id === paneId);
-      if (pane) {
-        pane.sessionId = sid;
-        pane.workspaceId = workspaceId;
+      if (p) {
+        p.sessionId = sid;
+        p.workspaceId = workspaceId;
         activeSessionId = sid;
         saveSplitState();
       }
-    }).catch(() => {});
-  } catch {}
+    }).catch(() => {
+      const p = splitStore.panes.find((x) => x.id === paneId);
+      if (p) p._connecting = false;
+    });
+  } catch {
+    if (pane) pane._connecting = false;
+  }
 }
 function pickNextCandidate(usedSessionIds, usedWorkspaceIds) {
   const wsItems = getHostWorkspaces();
   const ss = getHostSessions();
-  // 1. Prefer a different project (workspace) that already has a session
-  const diffWsWithSess = wsItems.find((w) => !usedWorkspaceIds.has(w.workspaceId) && Array.isArray(w.sessionIds) && w.sessionIds.some((id) => !usedSessionIds.has(id)));
-  if (diffWsWithSess) {
-    const sid = diffWsWithSess.sessionIds.find((id) => !usedSessionIds.has(id)) || "";
-    return { sessionId: sid, workspaceId: diffWsWithSess.workspaceId };
+  const arch = getHostArchivedIds();
+  const hasCatalog = Array.isArray(ss.ids) && ss.ids.length > 0;
+  // 1. Prefer a different project (workspace) that already has a valid unused session
+  for (const w of wsItems) {
+    if (usedWorkspaceIds.has(w.workspaceId)) continue;
+    const sid = pickWorkspaceSession(w, usedSessionIds, ss, arch);
+    if (sid) return { sessionId: sid, workspaceId: w.workspaceId };
   }
-  // 2. Or a different project without sessions yet (we'll auto-connect it)
+  // 2. Or a different project without unused sessions yet (auto-create/connect)
   const diffWsEmpty = wsItems.find((w) => !usedWorkspaceIds.has(w.workspaceId));
   if (diffWsEmpty) {
     return { sessionId: "", workspaceId: diffWsEmpty.workspaceId, autoConnect: true };
   }
-  // 3. Or another session from any workspace
-  const otherSid = (ss.ids || []).find((id) => !usedSessionIds.has(id))
-    || ((store.usage && store.usage.sessions) || []).map((x) => x.id).find((id) => !usedSessionIds.has(id))
+  // 3. Or another non-blank session from any workspace
+  const otherNonBlank = (ss.ids || []).find((id) => !usedSessionIds.has(id) && !arch.has(id) && ss.byId[id] && !ss.byId[id].blank);
+  if (otherNonBlank) {
+    return { sessionId: otherNonBlank, workspaceId: wsOfSession(otherNonBlank, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "" };
+  }
+  // 4. Or any other catalogued session
+  const otherSid = (ss.ids || []).find((id) => !usedSessionIds.has(id) && !arch.has(id))
+    || (!hasCatalog ? ((store.usage && store.usage.sessions) || []).map((x) => x.id).find((id) => !usedSessionIds.has(id)) : "")
     || "";
   if (otherSid) {
-    return { sessionId: otherSid, workspaceId: wsOfSession(otherSid, wsItems) };
+    return { sessionId: otherSid, workspaceId: wsOfSession(otherSid, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "" };
   }
   return { sessionId: "", workspaceId: (wsItems[0] && wsItems[0].workspaceId) || "", autoConnect: !!(wsItems[0] && wsItems[0].workspaceId) };
 }
 function ensureSplitPanes(targetSessionId, targetWorkspaceId) {
   loadSplitState();
+  patchWorkspaceRouting();
   const wsItems = getHostWorkspaces();
   const ss = getHostSessions();
-  // Resolve workspaceId if a path or name was passed
+  const arch = getHostArchivedIds();
+  const hasCatalog = Array.isArray(ss.ids) && ss.ids.length > 0;
   let resolvedWsId = targetWorkspaceId || "";
   if (resolvedWsId && !wsItems.some((w) => w.workspaceId === resolvedWsId)) {
     const byPath = wsItems.find((w) => w.path === resolvedWsId || base(w.path) === resolvedWsId || w.title === resolvedWsId);
     if (byPath) resolvedWsId = byPath.workspaceId;
   }
-  // Prune sessions that no longer exist if host session list is ready
-  if (ss.ids && ss.ids.length > 0) {
-    for (const p of splitStore.panes) {
-      if (p.sessionId && !ss.byId[p.sessionId]) p.sessionId = "";
-      if (p.sessionId && !p.workspaceId) p.workspaceId = wsOfSession(p.sessionId, wsItems);
+  const validTargetSid = (targetSessionId && (!hasCatalog || ss.byId[targetSessionId]) && !arch.has(targetSessionId)) ? targetSessionId : "";
+  // Prune invalid or duplicate sessions in saved panes
+  const seenSids = new Set();
+  for (const p of splitStore.panes) {
+    if (p.sessionId && ((hasCatalog && !ss.byId[p.sessionId]) || arch.has(p.sessionId) || seenSids.has(p.sessionId))) {
+      p.sessionId = "";
+    }
+    if (p.sessionId) {
+      seenSids.add(p.sessionId);
+      if (!p.workspaceId) p.workspaceId = wsOfSession(p.sessionId, wsItems);
     }
   }
-  const curPrimary = activeSessionId || (ss.ids && ss.ids[0]) || (store.usage && store.usage.sessions && store.usage.sessions[0] && store.usage.sessions[0].id) || "";
+  const curPrimary = getCurrentMainSessionId(ss)
+    || (ss.ids || []).find((id) => !arch.has(id) && ss.byId[id] && !ss.byId[id].blank)
+    || (ss.ids || []).find((id) => !arch.has(id))
+    || (!hasCatalog && store.usage && store.usage.sessions && store.usage.sessions[0] && store.usage.sessions[0].id)
+    || "";
   if (splitStore.panes.length === 0) {
-    const p1Id = "p-" + (++paneSeq);
-    const p1Sid = (targetSessionId && curPrimary && targetSessionId !== curPrimary) ? curPrimary : (targetSessionId || curPrimary);
-    const p1Ws = wsOfSession(p1Sid, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "";
+    const p1Id = nextPaneId();
+    const p1Sid = (validTargetSid && curPrimary && validTargetSid !== curPrimary) ? curPrimary : (validTargetSid || curPrimary);
+    const p1Ws = wsOfSession(p1Sid, wsItems) || resolvedWsId || (wsItems[0] && wsItems[0].workspaceId) || "";
     splitStore.panes.push({ id: p1Id, sessionId: p1Sid, workspaceId: p1Ws });
+    if (!p1Sid && p1Ws) connectPaneWorkspace(p1Id, p1Ws, false);
   }
   if (splitStore.panes.length < 2) {
     const p1 = splitStore.panes[0];
-    const p2Id = "p-" + (++paneSeq);
-    if (targetSessionId && targetSessionId !== p1.sessionId) {
-      const p2Ws = resolvedWsId || wsOfSession(targetSessionId, wsItems);
-      splitStore.panes.push({ id: p2Id, sessionId: targetSessionId, workspaceId: p2Ws });
+    const p2Id = nextPaneId();
+    const usedS = new Set([p1.sessionId].filter(Boolean));
+    const usedW = new Set([p1.workspaceId].filter(Boolean));
+    if (validTargetSid && validTargetSid !== p1.sessionId) {
+      const p2Ws = resolvedWsId || wsOfSession(validTargetSid, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "";
+      splitStore.panes.push({ id: p2Id, sessionId: validTargetSid, workspaceId: p2Ws });
       splitStore.activePaneId = p2Id;
     } else if (resolvedWsId && resolvedWsId !== p1.workspaceId) {
       const wsObj = wsItems.find((w) => w.workspaceId === resolvedWsId);
-      const sid = (wsObj && wsObj.sessionIds && wsObj.sessionIds.find((id) => id !== p1.sessionId)) || "";
+      const sid = pickWorkspaceSession(wsObj, usedS, ss, arch);
       splitStore.panes.push({ id: p2Id, sessionId: sid, workspaceId: resolvedWsId });
       splitStore.activePaneId = p2Id;
-      if (!sid) connectPaneWorkspace(p2Id, resolvedWsId, false);
+      if (!sid) connectPaneWorkspace(p2Id, resolvedWsId, true);
     } else {
-      const cand = pickNextCandidate(new Set([p1.sessionId].filter(Boolean)), new Set([p1.workspaceId].filter(Boolean)));
+      const cand = pickNextCandidate(usedS, usedW);
       splitStore.panes.push({ id: p2Id, sessionId: cand.sessionId, workspaceId: cand.workspaceId });
       splitStore.activePaneId = p2Id;
-      if (!cand.sessionId && cand.autoConnect && cand.workspaceId) connectPaneWorkspace(p2Id, cand.workspaceId, true);
+      if (!cand.sessionId && cand.workspaceId) connectPaneWorkspace(p2Id, cand.workspaceId, true);
     }
-  } else if (targetSessionId || resolvedWsId) {
-    const existing = targetSessionId && splitStore.panes.find((p) => p.sessionId === targetSessionId);
+  } else if (validTargetSid || resolvedWsId) {
+    const existing = validTargetSid && splitStore.panes.find((p) => p.sessionId === validTargetSid);
     if (existing) {
       splitStore.activePaneId = existing.id;
     } else if (isSplitPanelActive()) {
       const targetPane = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[splitStore.panes.length - 1];
       if (targetPane) {
-        if (targetSessionId) {
-          targetPane.sessionId = targetSessionId;
-          targetPane.workspaceId = resolvedWsId || wsOfSession(targetSessionId, wsItems) || targetPane.workspaceId;
+        if (validTargetSid) {
+          targetPane.sessionId = validTargetSid;
+          targetPane.workspaceId = resolvedWsId || wsOfSession(validTargetSid, wsItems) || targetPane.workspaceId;
         } else if (resolvedWsId) {
           targetPane.workspaceId = resolvedWsId;
           const wsObj = wsItems.find((w) => w.workspaceId === resolvedWsId);
-          const sid = (wsObj && wsObj.sessionIds && wsObj.sessionIds[0]) || "";
+          const usedS = new Set(splitStore.panes.filter((p) => p.id !== targetPane.id).map((p) => p.sessionId).filter(Boolean));
+          const sid = pickWorkspaceSession(wsObj, usedS, ss, arch);
           targetPane.sessionId = sid;
-          if (!sid) connectPaneWorkspace(targetPane.id, resolvedWsId, false);
+          if (!sid) connectPaneWorkspace(targetPane.id, resolvedWsId, true);
         }
       }
-    } else if (targetSessionId) {
-      // Entering Split View from Single View with an explicit target session
-      if (curPrimary && curPrimary !== targetSessionId) {
+    } else if (validTargetSid) {
+      if (curPrimary && curPrimary !== validTargetSid) {
         splitStore.panes[0].sessionId = curPrimary;
         splitStore.panes[0].workspaceId = wsOfSession(curPrimary, wsItems) || splitStore.panes[0].workspaceId;
-        splitStore.panes[1].sessionId = targetSessionId;
-        splitStore.panes[1].workspaceId = resolvedWsId || wsOfSession(targetSessionId, wsItems);
+        splitStore.panes[1].sessionId = validTargetSid;
+        splitStore.panes[1].workspaceId = resolvedWsId || wsOfSession(validTargetSid, wsItems) || splitStore.panes[1].workspaceId;
         splitStore.activePaneId = splitStore.panes[1].id;
       } else {
-        splitStore.panes[0].sessionId = targetSessionId;
-        splitStore.panes[0].workspaceId = resolvedWsId || wsOfSession(targetSessionId, wsItems);
+        splitStore.panes[0].sessionId = validTargetSid;
+        splitStore.panes[0].workspaceId = resolvedWsId || wsOfSession(validTargetSid, wsItems) || splitStore.panes[0].workspaceId;
         splitStore.activePaneId = splitStore.panes[0].id;
+      }
+    }
+  }
+  // Repair any pane that still lacks a sessionId when host catalog is available
+  const usedNowS = new Set(splitStore.panes.map((p) => p.sessionId).filter(Boolean));
+  const usedNowW = new Set(splitStore.panes.map((p) => p.workspaceId).filter(Boolean));
+  for (const p of splitStore.panes) {
+    if (!p.sessionId && !p._connecting) {
+      const wsObj = p.workspaceId ? wsItems.find((w) => w.workspaceId === p.workspaceId) : null;
+      const sid = wsObj ? pickWorkspaceSession(wsObj, usedNowS, ss, arch) : "";
+      if (sid) {
+        p.sessionId = sid;
+        usedNowS.add(sid);
+      } else {
+        const cand = pickNextCandidate(usedNowS, usedNowW);
+        if (cand.sessionId) {
+          p.sessionId = cand.sessionId;
+          p.workspaceId = cand.workspaceId || p.workspaceId;
+          usedNowS.add(cand.sessionId);
+          if (cand.workspaceId) usedNowW.add(cand.workspaceId);
+        } else if (p.workspaceId || cand.workspaceId) {
+          p.workspaceId = p.workspaceId || cand.workspaceId;
+          connectPaneWorkspace(p.id, p.workspaceId, true);
+        }
       }
     }
   }
@@ -2019,10 +2196,10 @@ function setSplitCount(wantCount) {
     const usedS = new Set(splitStore.panes.map((p) => p.sessionId).filter(Boolean));
     const usedW = new Set(splitStore.panes.map((p) => p.workspaceId).filter(Boolean));
     const cand = pickNextCandidate(usedS, usedW);
-    const pid = "p-" + (++paneSeq);
+    const pid = nextPaneId();
     splitStore.panes.push({ id: pid, sessionId: cand.sessionId, workspaceId: cand.workspaceId });
     splitStore.activePaneId = pid;
-    if (!cand.sessionId && cand.autoConnect && cand.workspaceId) connectPaneWorkspace(pid, cand.workspaceId, true);
+    if (!cand.sessionId && cand.workspaceId) connectPaneWorkspace(pid, cand.workspaceId, true);
   }
   if (splitStore.panes.length > n) {
     splitStore.panes = splitStore.panes.slice(0, n);
@@ -2051,8 +2228,10 @@ function patchWorkspaceRouting() {
   if (!uiWs || uiWs.__jaPatched) return () => {};
   const origOpenSession = uiWs.openSession.bind(uiWs);
   const origOpenWorkspace = uiWs.openWorkspace.bind(uiWs);
+  const origStartSession = typeof uiWs.startSession === "function" ? uiWs.startSession.bind(uiWs) : null;
   uiWs.__jaPatched = true;
-  uiWs.openSession = async (sessionId, ...rest) => {
+  uiWs.openSession = (target, ...rest) => {
+    const sessionId = typeof target === "string" ? target : (target && target.childSessionId) || "";
     if (sessionId) activeSessionId = sessionId;
     if (!splitBypass && isSplitPanelActive() && sessionId) {
       loadSplitState();
@@ -2060,16 +2239,16 @@ function patchWorkspaceRouting() {
       if (existing) {
         splitStore.activePaneId = existing.id;
       } else {
-        const target = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0];
-        if (target) {
-          target.sessionId = sessionId;
-          target.workspaceId = wsOfSession(sessionId) || target.workspaceId;
+        const pane = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0];
+        if (pane) {
+          pane.sessionId = sessionId;
+          pane.workspaceId = wsOfSession(sessionId) || pane.workspaceId;
         }
       }
       saveSplitState();
       return;
     }
-    return origOpenSession(sessionId, ...rest);
+    return origOpenSession(target, ...rest);
   };
   uiWs.openWorkspace = async (workspaceId, ...rest) => {
     if (!splitBypass && isSplitPanelActive() && workspaceId) {
@@ -2080,25 +2259,103 @@ function patchWorkspaceRouting() {
         const wsItems = getHostWorkspaces();
         const wsObj = wsItems.find((w) => w.workspaceId === workspaceId);
         const usedS = new Set(splitStore.panes.filter((p) => p.id !== target.id).map((p) => p.sessionId).filter(Boolean));
-        const sid = (wsObj && wsObj.sessionIds && (wsObj.sessionIds.find((id) => !usedS.has(id)) || wsObj.sessionIds[0])) || "";
+        const sid = pickWorkspaceSession(wsObj, usedS);
         if (sid) {
           target.sessionId = sid;
           activeSessionId = sid;
           saveSplitState();
         } else {
           saveSplitState();
-          connectPaneWorkspace(target.id, workspaceId, false);
+          connectPaneWorkspace(target.id, workspaceId, true);
         }
         return;
       }
     }
     return origOpenWorkspace(workspaceId, ...rest);
   };
+  if (origStartSession) {
+    uiWs.startSession = (workspaceId, options) => {
+      if (!splitBypass && isSplitPanelActive()) {
+        loadSplitState();
+        const target = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0];
+        if (target) {
+          const wsItems = getHostWorkspaces();
+          const wid = workspaceId || target.workspaceId || (wsItems[0] && wsItems[0].workspaceId);
+          if (wid) {
+            target.workspaceId = wid;
+            saveSplitState();
+            connectPaneWorkspace(target.id, wid, true);
+            return;
+          }
+        }
+      }
+      return origStartSession(workspaceId, options);
+    };
+  }
   return () => {
     uiWs.openSession = origOpenSession;
     uiWs.openWorkspace = origOpenWorkspace;
+    if (origStartSession) uiWs.startSession = origStartSession;
     delete uiWs.__jaPatched;
   };
+}
+function watchHostStores(ctx) {
+  const offs = [];
+  const trySub = (svcName, prop) => {
+    try {
+      const svc = ctx.get(svcName);
+      const storeObj = svc && svc[prop];
+      if (storeObj && typeof storeObj.subscribe === "function") {
+        offs.push(storeObj.subscribe(() => {
+          patchWorkspaceRouting();
+          emit();
+        }));
+      }
+    } catch {}
+  };
+  trySub("layout", "panelInfo");
+  trySub("workspaces", "list");
+  trySub("sessions", "list");
+  const t = setTimeout(() => {
+    patchWorkspaceRouting();
+    trySub("layout", "panelInfo");
+    trySub("workspaces", "list");
+    trySub("sessions", "list");
+  }, 600);
+  return () => {
+    clearTimeout(t);
+    offs.forEach((fn) => { try { typeof fn === "function" && fn(); } catch {} });
+  };
+}
+
+class SplitErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error) {
+    console.warn("jules-atelier: SplitErrorBoundary caught:", error);
+  }
+  render() {
+    if (this.state.error) {
+      return h("div", { className: "ja-sp-empty" },
+        h("span", { className: "ja-caps" }, "Folio Recovery"),
+        h("h4", null, "此卷正在重整"),
+        h("p", null, String((this.state.error && this.state.error.message) || this.state.error || "渲染异常")),
+        h("button", {
+          type: "button",
+          className: "ja-btn ja-btn-ink",
+          onClick: () => {
+            this.setState({ error: null });
+            if (typeof this.props.onRetry === "function") this.props.onRetry();
+          },
+        }, "重新展卷"));
+    }
+    return this.props.children;
+  }
 }
 
 function FixedChatConversationView(props) {
@@ -2119,37 +2376,85 @@ function SplitConversationPane(props) {
     hero,
   }, { slots: { views: FixedChatConversationView } });
 }
-function SplitPaneSessionHost({ sessionId, SessionProvider, renderSlot }) {
+function SplitPaneSessionHost({ pane, sessionId, workspaceId, sessionsById, catalogReady, SessionProvider, renderSlot }) {
   const [reference, setReference] = React.useState(null);
   const [err, setErr] = React.useState("");
+  const inCatalog = !!(sessionId && sessionsById && sessionsById[sessionId]);
+  const isBlank = !!(inCatalog && sessionsById[sessionId].blank);
+
   React.useEffect(() => {
     if (!sessionId || !CTX) { setReference(null); setErr(""); return; }
+    if (catalogReady && !inCatalog) {
+      setReference(null);
+      if (workspaceId && pane && !pane._connecting) {
+        connectPaneWorkspace(pane.id, workspaceId, false);
+      } else {
+        setErr("此会话不在当前工作区目录中");
+      }
+      return;
+    }
     let sessionsSvc = null;
     try { sessionsSvc = CTX.get("sessions"); } catch {}
     if (!sessionsSvc || typeof sessionsSvc.retain !== "function") return;
     const ctrl = new AbortController();
-    setReference(null); setErr("");
-    sessionsSvc.retain(sessionId, { source: "sidebarChat", signal: ctrl.signal }).then(
-      (ref) => { if (!ctrl.signal.aborted) setReference(ref); },
-      (e) => { if (!ctrl.signal.aborted) setErr(String((e && e.message) || e)); },
-    );
-    return () => ctrl.abort();
-  }, [sessionId]);
+    let ref = null;
+    setErr("");
+    try {
+      if (isBlank && workspaceId && typeof sessionsSvc.create === "function") {
+        sessionsSvc.create({ workspaceId, sessionId }).catch(() => {});
+      }
+      ref = sessionsSvc.retain(sessionId, { source: "sidebarChat", signal: ctrl.signal });
+      setReference(ref);
+      if (ref && ref.ready && typeof ref.ready.then === "function") {
+        ref.ready.catch((e) => {
+          if (!ctrl.signal.aborted) setErr(String((e && e.message) || e));
+        });
+      }
+    } catch (e) {
+      if (!ctrl.signal.aborted) {
+        if (workspaceId && pane && !pane._connecting) {
+          connectPaneWorkspace(pane.id, workspaceId, false);
+        } else {
+          setErr(String((e && e.message) || e));
+        }
+      }
+    }
+    return () => {
+      ctrl.abort();
+      if (ref && typeof ref.release === "function") {
+        try { ref.release(); } catch {}
+      }
+      setReference((cur) => (cur === ref ? null : cur));
+    };
+  }, [sessionId, inCatalog, catalogReady, isBlank, workspaceId]);
+
   if (err) {
     return h("div", { className: "ja-sp-empty" },
       h("span", { className: "ja-caps" }, "Session Unavailable"),
-      h("h4", null, "此卷会话已归档或不存在"),
-      h("p", null, "请从上方项目或会话菜单中选择另一卷，或点击左侧栏任意会话。"));
+      h("h4", null, "此卷会话已归档或暂不可用"),
+      h("p", null, "可点击下方按钮在此项目新建对话，或从上方项目与会话菜单中切换。"),
+      workspaceId ? h("button", {
+        type: "button",
+        className: "ja-btn ja-btn-ink",
+        onClick: () => { setErr(""); if (pane) connectPaneWorkspace(pane.id, workspaceId, true); },
+      }, "+ 在此项目新建会话") : null);
   }
-  if (!reference || !SessionProvider || !renderSlot) {
+  let liveRef = (reference && reference.sessionId === sessionId) ? reference : null;
+  if (liveRef) {
+    try { void liveRef.binding; } catch { liveRef = null; }
+  }
+  if (!liveRef || !SessionProvider || !renderSlot) {
     return h("div", { className: "ja-sp-empty" },
       h("span", { className: "ja-caps" }, "Opening Folio"),
       h("h4", null, "正在展卷…"));
   }
-  return h(SessionProvider, { session: reference }, renderSlot("ja.split.conversation", { sessionId }));
+  return h(SplitErrorBoundary, {
+    key: sessionId,
+    onRetry: () => { if (pane && workspaceId) connectPaneWorkspace(pane.id, workspaceId, false); },
+  }, h(SessionProvider, { session: liveRef }, renderSlot("ja.split.conversation", { sessionId })));
 }
 
-function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, statusMap, s, SessionProvider, renderSlot }) {
+function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, catalogReady, statusMap, s, SessionProvider, renderSlot }) {
   const [menu, setMenu] = React.useState(null); // { kind: "ws" | "sess", left, top }
   const wsBtnRef = React.useRef(null), sessBtnRef = React.useRef(null), menuRef = React.useRef(null);
   React.useEffect(() => {
@@ -2168,12 +2473,14 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
 
   const sessMeta = (pane.sessionId && sessionsById[pane.sessionId]) || null;
   const usageSess = (store.usage && store.usage.sessions && store.usage.sessions.find((x) => x.id === pane.sessionId)) || null;
-  const wsId = pane.workspaceId || (sessMeta && sessMeta.workspaceId) || wsOfSession(pane.sessionId, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "";
+  const sessCwd = (sessMeta && sessMeta.cwd) || (usageSess && usageSess.cwd) || "";
+  const directWsId = pane.workspaceId || (sessMeta && sessMeta.workspaceId) || wsOfSession(pane.sessionId, wsItems) || "";
+  const wsId = directWsId || (!pane.sessionId && wsItems[0] ? wsItems[0].workspaceId : "");
   const wsObj = wsItems.find((w) => w.workspaceId === wsId) || null;
-  const wsTitle = (wsObj && (wsObj.title || base(wsObj.path))) || (usageSess && base(usageSess.cwd)) || "选择项目";
-  const sessTitle = (sessMeta && sessMeta.title) || (usageSess && usageSess.title) || (pane.sessionId ? "新会话 · Fresh Sheet" : "未选会话");
+  const wsTitle = (wsObj && (wsObj.title || base(wsObj.path))) || (sessCwd && base(sessCwd)) || "选择项目";
+  const sessTitle = (sessMeta && (sessMeta.title || (!sessMeta.blank && sessMeta.displayTitle))) || (usageSess && usageSess.title) || (pane.sessionId ? "新会话 · Fresh Sheet" : "未选会话");
   const stInfo = (pane.sessionId && statusMap && typeof statusMap.get === "function" && statusMap.get(pane.sessionId)) || null;
-  const running = !!(stInfo ? stInfo.running : (usageSess && usageSess.running));
+  const running = !!(stInfo ? stInfo.running : ((sessMeta && sessMeta.running) || (usageSess && usageSess.running)));
   const waiting = !!(stInfo && stInfo.pendingInteraction);
   const cost = usageSess ? bagCost(usageSess.by, s) : 0;
 
@@ -2196,7 +2503,7 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
     setMenu(null);
     pane.workspaceId = w.workspaceId;
     const usedS = new Set(splitStore.panes.filter((p) => p.id !== pane.id).map((p) => p.sessionId).filter(Boolean));
-    const sid = (w.sessionIds && (w.sessionIds.find((id) => !usedS.has(id)) || w.sessionIds[0])) || "";
+    const sid = pickWorkspaceSession(w, usedS);
     if (sid) {
       pane.sessionId = sid;
       activeSessionId = sid;
@@ -2204,7 +2511,7 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
     } else {
       pane.sessionId = "";
       saveSplitState();
-      connectPaneWorkspace(pane.id, w.workspaceId, false);
+      connectPaneWorkspace(pane.id, w.workspaceId, true);
     }
   };
   const selectSess = (sid, wid) => {
@@ -2225,15 +2532,37 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
     setMenu(null);
     try {
       const uiWs = CTX && CTX.get("uiWorkspace");
-      if (uiWs && typeof uiWs.createWorkspace === "function") {
-        uiWs.createWorkspace().then((newWsId) => {
-          if (newWsId) connectPaneWorkspace(pane.id, newWsId, true);
+      const wsSvc = CTX && CTX.get("workspaces");
+      const pick = globalThis.__DSH_DIRECTORY_PICKER__ && typeof globalThis.__DSH_DIRECTORY_PICKER__.pick === "function"
+        ? () => globalThis.__DSH_DIRECTORY_PICKER__.pick()
+        : (uiWs && typeof uiWs.pickDirectory === "function")
+          ? () => uiWs.pickDirectory()
+          : null;
+      if (pick && wsSvc && typeof wsSvc.create === "function") {
+        pick().then((path) => {
+          if (!path) return;
+          return wsSvc.create({ path }).then((res) => {
+            const newWsId = res && res.workspaceId;
+            if (newWsId) {
+              pane.workspaceId = newWsId;
+              pane.sessionId = "";
+              saveSplitState();
+              connectPaneWorkspace(pane.id, newWsId, true);
+            }
+          });
         }).catch(() => {});
       }
     } catch {}
   };
 
-  const wsSessions = (wsObj && Array.isArray(wsObj.sessionIds) ? wsObj.sessionIds : [])
+  const arch = getHostArchivedIds();
+  const rawSessIds = (wsObj && Array.isArray(wsObj.sessionIds))
+    ? wsObj.sessionIds
+    : sessCwd
+      ? Object.values(sessionsById).filter((r) => r && r.cwd === sessCwd).map((r) => r.id)
+      : Object.keys(sessionsById);
+  const wsSessions = rawSessIds
+    .filter((id) => !arch.has(id) && (!catalogReady || !!sessionsById[id]))
     .map((id) => sessionsById[id] || (store.usage && store.usage.sessions && store.usage.sessions.find((x) => x.id === id)) || { id, title: "会话" })
     .filter(Boolean);
 
@@ -2276,7 +2605,16 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
       }, "×") : null),
     h("div", { className: "ja-sp-body" },
       pane.sessionId
-        ? h(SplitPaneSessionHost, { key: pane.sessionId, sessionId: pane.sessionId, SessionProvider, renderSlot })
+        ? h(SplitPaneSessionHost, {
+            key: pane.sessionId,
+            pane,
+            sessionId: pane.sessionId,
+            workspaceId: wsId,
+            sessionsById,
+            catalogReady,
+            SessionProvider,
+            renderSlot,
+          })
         : h("div", { className: "ja-sp-empty" },
             h("span", { className: "ja-caps" }, `Folio ${ROMAN[idx]} · Ready`),
             h("h4", null, "展卷待书 · 请选择项目或会话"),
@@ -2291,7 +2629,7 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
       menu.kind === "ws" ? h(React.Fragment, null,
         h("div", { className: "ja-sp-mhead" },
           h("span", { className: "ja-caps" }, `Select Project · 卷 ${ROMAN[idx]} 项目`),
-          h("button", { type: "button", className: "ja-link", onClick: createNewProject }, "+ 新建项目")),
+          h("button", { type: "button", className: "ja-link", onClick: createNewProject }, "+ 打开新项目")),
         wsItems.length === 0
           ? h("div", { style: { padding: "12px 8px", color: "var(--ink-3)", fontSize: 12 } }, "暂无已打开的项目文件夹")
           : wsItems.map((w, i) => h("button", {
@@ -2301,7 +2639,7 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
             },
               h("span", { className: "ja-caps", style: { width: 18, color: "var(--gold-deep)" } }, ROMAN[i] || (i + 1)),
               h("b", null, w.title || base(w.path)),
-              h("small", null, `${(w.sessionIds && w.sessionIds.length) || 0} 会话`))))
+              h("small", null, `${(w.sessionIds && w.sessionIds.filter((id) => !arch.has(id)).length) || 0} 会话`))))
       : h(React.Fragment, null,
           h("div", { className: "ja-sp-mhead" },
             h("span", { className: "ja-caps" }, `${wsTitle} · 会话列表`),
@@ -2312,62 +2650,78 @@ function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, stat
                 const sid = x.id || x.sessionId;
                 const uSess = store.usage && store.usage.sessions && store.usage.sessions.find((u) => u.id === sid);
                 const c = uSess ? bagCost(uSess.by, s) : 0;
+                const titleTxt = x.title || (!x.blank && x.displayTitle) || (uSess && uSess.title) || "新会话 · Fresh Sheet";
                 return h("button", {
                   key: sid, type: "button",
                   className: "ja-sp-mitem" + (sid === pane.sessionId ? " ja-cur" : ""),
                   onClick: () => selectSess(sid, wsId),
                 },
-                  h("b", null, x.title || (uSess && uSess.title) || "新会话 · Fresh Sheet"),
-                  h("small", null, c > 0 ? money(c, s) : (uSess && uSess.turns ? `${uSess.turns} 轮` : "空白")));
+                  h("b", null, titleTxt),
+                  h("small", null, c > 0 ? money(c, s) : (uSess && uSess.turns ? `${uSess.turns} 轮` : (x.blank ? "新空白卷" : "就绪"))));
               })))) : null);
 }
 
 function SplitWorkbench(props) {
   const st = useStore(), s = st.settings;
   loadSplitState();
-  React.useEffect(() => {
-    if (splitStore.panes.length < 2) ensureSplitPanes();
-  }, []);
   const wsState = props.useWorkspaces ? props.useWorkspaces((v) => v) : null;
   const sessState = props.useSessions ? props.useSessions((v) => v) : null;
   const statusMap = props.useSessionStatus ? props.useSessionStatus((v) => v) : null;
+  const hostSs = sessState || getHostSessions();
   const wsItems = (wsState && wsState.items) || getHostWorkspaces();
-  const sessionsById = (sessState && sessState.byId) || getHostSessions().byId || {};
+  const sessionsById = (hostSs && hostSs.byId) || {};
+  const catalogReady = !!(hostSs && (hostSs.phase === "ready" || (Array.isArray(hostSs.ids) && hostSs.ids.length > 0)));
+
+  React.useEffect(() => {
+    patchWorkspaceRouting();
+    if (splitStore.panes.length < 2) {
+      ensureSplitPanes();
+      return;
+    }
+    if (catalogReady || wsItems.length > 0) {
+      const arch = getHostArchivedIds();
+      const needsRepair = splitStore.panes.some((p) => !p.sessionId || (catalogReady && !sessionsById[p.sessionId]) || arch.has(p.sessionId));
+      if (needsRepair) ensureSplitPanes();
+    }
+  }, [catalogReady, wsItems.length]);
+
   const panes = splitStore.panes;
   const count = panes.length;
   const layoutKey = count >= 4 ? "grid-4" : count === 3 ? "cols-3" : count === 2 ? "cols-2" : "cols-1";
   const activeIdx = Math.max(0, panes.findIndex((p) => p.id === splitStore.activePaneId));
 
-  return h("div", { className: "ja-root ja-split-root" },
-    h("header", { className: "ja-split-bar" },
-      h("div", { className: "ja-split-brand" },
-        h("span", { className: "ja-caps", style: { color: "var(--gold-deep)" } }, "Parallel Folios"),
-        h("b", null, "多卷同览"),
-        h("em", null, `${count} Folios`),
-        h("span", { className: "ja-split-hint" }, `· 当前焦点：卷 ${ROMAN[activeIdx] || "I"}（点选左侧栏项目或会话可直接投送至焦点卷）`)),
-      h("div", { className: "ja-split-actions" },
-        h("div", { className: "ja-seg" },
-          [[2, "双卷 1×2"], [3, "三卷 1×3"], [4, "四卷 2×2"]].map(([n, label]) => h("button", {
-            key: n, type: "button",
-            "aria-pressed": count === n,
-            onClick: () => setSplitCount(n),
-          }, label))),
-        count < 4 ? h("button", { type: "button", className: "ja-btn", onClick: () => setSplitCount(count + 1) }, "+ 添一卷") : null,
-        h("button", { type: "button", className: "ja-btn ja-btn-ink", onClick: () => closeSplitView() }, "收卷 · 单屏"))),
-    h("div", { className: "ja-split-stage", "data-layout": layoutKey },
-      panes.map((pane, idx) => h(SplitPaneView, {
-        key: pane.id,
-        pane,
-        idx,
-        total: count,
-        isActive: pane.id === splitStore.activePaneId,
-        wsItems,
-        sessionsById,
-        statusMap,
-        s,
-        SessionProvider: props.SessionProvider,
-        renderSlot: props.renderSlot,
-      }))));
+  return h(SplitErrorBoundary, { onRetry: () => ensureSplitPanes() },
+    h("div", { className: "ja-root ja-split-root" },
+      h("header", { className: "ja-split-bar" },
+        h("div", { className: "ja-split-brand" },
+          h("span", { className: "ja-caps", style: { color: "var(--gold-deep)" } }, "Parallel Folios"),
+          h("b", null, "多卷同览"),
+          h("em", null, `${count} Folios`),
+          h("span", { className: "ja-split-hint" }, `· 当前焦点：卷 ${ROMAN[activeIdx] || "I"}（点选左侧栏项目或会话可直接投送至焦点卷）`)),
+        h("div", { className: "ja-split-actions" },
+          h("div", { className: "ja-seg" },
+            [[2, "双卷 1×2"], [3, "三卷 1×3"], [4, "四卷 2×2"]].map(([n, label]) => h("button", {
+              key: n, type: "button",
+              "aria-pressed": count === n,
+              onClick: () => setSplitCount(n),
+            }, label))),
+          count < 4 ? h("button", { type: "button", className: "ja-btn", onClick: () => setSplitCount(count + 1) }, "+ 添一卷") : null,
+          h("button", { type: "button", className: "ja-btn ja-btn-ink", onClick: () => closeSplitView() }, "收卷 · 单屏"))),
+      h("div", { className: "ja-split-stage", "data-layout": layoutKey },
+        panes.map((pane, idx) => h(SplitPaneView, {
+          key: pane.id,
+          pane,
+          idx,
+          total: count,
+          isActive: pane.id === splitStore.activePaneId,
+          wsItems,
+          sessionsById,
+          catalogReady,
+          statusMap,
+          s,
+          SessionProvider: props.SessionProvider,
+          renderSlot: props.renderSlot,
+        })))));
 }
 
 function SplitSidebarIcon() {
@@ -2376,14 +2730,16 @@ function SplitSidebarIcon() {
     h("rect", { x: 9, y: 2.2, width: 5.5, height: 11.6, rx: 1, stroke: "var(--ja-gold, #A48659)", strokeWidth: 1.2 }),
     h("path", { d: "M3.2 5.2H5.3M3.2 7.5H5.3M10.7 5.2H12.8M10.7 7.5H12.8", stroke: "currentColor", strokeWidth: 1, strokeLinecap: "round" }));
 }
-function SplitHeaderButton({ sessionId }) {
+function SplitHeaderButton(props) {
   useStore();
-  if (isSplitPanelActive()) return null;
+  const panelActive = props && props.usePanelInfo ? props.usePanelInfo((info) => info && info.activePanelId === SPLIT_PANEL_ID) : isSplitPanelActive();
+  if (panelActive) return null;
+  const sid = (props && props.sessionId) || activeSessionId;
   return h("button", {
     type: "button",
     className: "ja-root ja-hdr-split",
     title: "开启多卷同览（Parallel Folios），与其他项目或会话同屏并置对照",
-    onClick: () => openSplitView(sessionId || activeSessionId),
+    onClick: () => openSplitView(sid),
   },
     h(SplitSidebarIcon, null),
     h("span", null, "多卷并置"));
@@ -2411,9 +2767,9 @@ function apply(ctx) {
   ctx.effect(() => {
     CTX = ctx; const a = addStyle("ja-fonts", FONT_CSS);
     syncPalette(); applyBodyFlags(); loadSettings(); startSea(); startBridge();
-    const bt = registerBotThemes(), pr = patchWorkspaceRouting();
+    const bt = registerBotThemes(), pr = patchWorkspaceRouting(), ws = watchHostStores(ctx);
     const nt = setTimeout(() => updNotice().catch(() => {}), 4000);
-    return () => { clearTimeout(nt); pr(); bt(); a(); stopBridge(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink", "ja-pal-cinnabar"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
+    return () => { clearTimeout(nt); ws(); pr(); bt(); a(); stopBridge(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink", "ja-pal-cinnabar"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
   }, "jules-atelier: styles");
   const reg = (slot, opts, comp) => ctx.slots.inject(slot, () => ctx.slots.register({ name: slot, ...opts }, comp));
   reg("conversation.hero.brand.mark", { priority: -10 }, HeroMark);
