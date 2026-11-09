@@ -42,6 +42,7 @@ function build(){
   const stars=[];for(let r=1;r<WL-3;r++)for(let x=1;x<COLS-1;x++){if(cov[r][x]>.02||(r>0&&cov[r-1][x]>.02)||cov[Math.min(ROWS-1,r+1)][x]>.02)continue;const k=hash(x,r,31);if(k<.014)stars.push({x,r,b:hash(x,r,32),f:.6+hash(x,r,33)*1.8,p:hash(x,r,34)*6.3})}
   S={stars,C,BOOST,night,FONT,CW,CH,COLS,ROWS,X0,Y0,WL,Wc,Hc,cov,hgt,lab,bellyId,eye,bhX,bhY,cx0,cy0,
      L:S?.L||{x:cx0-260,y:cy0-260},LT:{x:cx0-260,y:cy0-260},hover:0,hoverT:0,spray:[],bubbles:[],nextSpout:S?S.nextSpout:2.4};
+  window.__jaSpout=()=>{if(S)S.nextSpout=0};
 }
 
 function draw(t){
@@ -50,12 +51,27 @@ function draw(t){
   ctx.clearRect(0,0,Wc,Hc);
   /* medallion follows the hour: low sun in mist at dawn, high at noon, warm and sinking at dusk,
      a crescent (full on Mid-Autumn) among stars at night */
-  const PH=D.phase||'day', R0=Math.min(Wc*.42,Hc*.4), scx=cx0-CW*4;
-  const scy=Y0+WL*CH-R0*({dawn:.22,day:.55,dusk:.12,night:.5}[PH]);
-  const warm=PH==='dusk'?'226,169,91':PH==='dawn'?'232,196,150':C.hi, ga={dawn:.16,day:.11,dusk:.34,night:.09}[PH];
+  const rawPh=D.phase||'day', isSnow=!!(D.snow||rawPh==='snow'), PH=rawPh==='snow'?(S.night?'night':'dawn'):rawPh;
+  const R0=Math.min(Wc*.42,Hc*.4), scx=cx0-CW*4;
+  const scy=Y0+WL*CH-R0*({dawn:.22,day:.55,dusk:.12,night:.5}[PH]||.55);
+  const warm=PH==='dusk'?'226,169,91':PH==='dawn'?'232,196,150':C.hi, ga={dawn:.16,day:.11,dusk:.34,night:.09}[PH]||.11;
   ctx.save();ctx.beginPath();ctx.rect(0,0,Wc,Y0+WL*CH);ctx.clip();
-  if(PH==='night'){ /* stars */
-    for(const st of S.stars){const tw=.5+.5*Math.sin(s*st.f+st.p);ctx.fillStyle=`rgba(${C.hi},${(.18+.5*tw*st.b).toFixed(3)})`;ctx.font=FONT;ctx.textBaseline='top';ctx.fillText(tw>.93&&st.b>.7?'+':st.b>.8?'*':'·',X0+st.x*CW,Y0+st.r*CH)}}
+  if(PH==='night'){ /* stars + engraved crescent / full moon */
+    for(const st of S.stars){const tw=.5+.5*Math.sin(s*st.f+st.p);ctx.fillStyle=`rgba(${C.hi},${(.18+.5*tw*st.b).toFixed(3)})`;ctx.font=FONT;ctx.textBaseline='top';ctx.fillText(tw>.93&&st.b>.7?'+':st.b>.8?'*':'·',X0+st.x*CW,Y0+st.r*CH)}
+    const mx=scx-R0*.38, my=Y0+Math.max(CH*4.2,WL*CH-R0*.76), rm=Math.max(12,R0*.19);
+    const mg=ctx.createRadialGradient(mx,my,rm*.2,mx,my,rm*2.4);mg.addColorStop(0,`rgba(${C.hi},.22)`);mg.addColorStop(1,`rgba(${C.hi},0)`);
+    ctx.fillStyle=mg;ctx.beginPath();ctx.arc(mx,my,rm*2.4,0,7);ctx.fill();
+    for(let dy=-rm;dy<=rm;dy+=2.1){
+      const dx=Math.sqrt(Math.max(0,rm*rm-dy*dy));
+      let x0=mx-dx, x1=mx+dx;
+      if(!D.full){
+        const ox=mx+rm*.42, oy=my-rm*.18, r2=rm*.88, dy2=dy-(oy-my);
+        if(Math.abs(dy2)<r2){const dx2=Math.sqrt(r2*r2-dy2*dy2); x1=Math.min(x1,ox-dx2)}
+      }
+      if(x1>x0+1){ctx.strokeStyle=`rgba(${C.hi},${D.full?.62:.55})`;ctx.lineWidth=.85;ctx.beginPath();ctx.moveTo(x0,my+dy);ctx.lineTo(x1,my+dy);ctx.stroke()}
+    }
+    ctx.strokeStyle=`rgba(${C.gold},.55)`;ctx.lineWidth=.75;ctx.beginPath();ctx.arc(mx,my,rm,D.full?0:Math.PI*.58,D.full?7:Math.PI*1.62);ctx.stroke();
+  }
   const gr=ctx.createRadialGradient(scx,scy,0,scx,scy,R0);gr.addColorStop(0,`rgba(${warm},${ga})`);gr.addColorStop(1,`rgba(${warm},0)`);
   ctx.fillStyle=gr;ctx.beginPath();ctx.arc(scx,scy,R0,0,7);ctx.fill();
   ctx.lineWidth=.6;
@@ -112,9 +128,14 @@ function draw(t){
       else if(inB){if((x+r)%3===0)put('.',x,r,C.belly,.35*fade)}
       else{const tw=hash(x,r,Math.floor(s*1.5));if(tw<.012)put(tw<.004?'*':'·',x,r,C.hi,.55*fade);else if(tw<.06)put('.',x,r,C.sea,.35*fade)}}}
   /* dawn mist: slow drifting bands over the waterline */
-  if(D.phase==='dawn'){for(let b=0;b<3;b++){const r0=WL-2-b*3;for(let x=0;x<COLS;x++){const n=Math.sin(x*.11+s*.25*(b+1)+b*2)+Math.sin(x*.037-s*.18+b);if(n<.55)continue;const r=r0+(Math.sin(x*.05+b)>0?0:1);
+  if(PH==='dawn'){for(let b=0;b<3;b++){const r0=WL-2-b*3;for(let x=0;x<COLS;x++){const n=Math.sin(x*.11+s*.25*(b+1)+b*2)+Math.sin(x*.037-s*.18+b);if(n<.55)continue;const r=r0+(Math.sin(x*.05+b)>0?0:1);
     if(r<0||r>=ROWS||(cov[r]&&cov[r][x]>.5&&hash(x,r,b)<.6))continue;put(n>1.25?'~':hash(x,b,Math.floor(s))<.5?'-':'.',x,r,C.hi,.26+.16*(n-.55))}}}
   /* dusk: gold path on the water under the sun */
-  if(D.phase==='dusk'){const sx=Math.round((cx0-CW*4-X0)/CW);for(let r=WL;r<ROWS;r++){const w=6+(r-WL)*1.6;for(let x=Math.max(0,Math.round(sx-w));x<Math.min(COLS,Math.round(sx+w));x++){const k=hash(x,r,Math.floor(s*3));if(k<.34)put(k<.1?'=':k<.2?'~':'-',x,r,'226,169,91',.9*(1-(r-WL)/(ROWS-WL+1)))}}}
+  if(PH==='dusk'){const sx=Math.round((cx0-CW*4-X0)/CW);for(let r=WL;r<ROWS;r++){const w=6+(r-WL)*1.6;for(let x=Math.max(0,Math.round(sx-w));x<Math.min(COLS,Math.round(sx+w));x++){const k=hash(x,r,Math.floor(s*3));if(k<.34)put(k<.1?'=':k<.2?'~':'-',x,r,'226,169,91',.9*(1-(r-WL)/(ROWS-WL+1)))}}}
+  /* night: silver-gold moonbeam path on the water under the moon */
+  if(PH==='night'){const mx=Math.round((scx-R0*.38-X0)/CW);for(let r=WL;r<ROWS;r++){const w=3+(r-WL)*1.1;for(let x=Math.max(0,Math.round(mx-w));x<Math.min(COLS,Math.round(mx+w));x++){const k=hash(x,r,Math.floor(s*2.2));if(k<.28)put(k<.08?'~':k<.18?'-':'·',x,r,C.hi,.72*(1-(r-WL)/(ROWS-WL+1)))}}}
+  /* winter snow: drifting flakes on snowy solar terms or snow mode */
+  if(isSnow){for(let i=0;i<42;i++){const sp2=1.4+hash(i,1,9)*1.8, ry=((s*sp2+hash(i,2,9)*WL)%WL), r=Math.floor(ry);
+    const rx=(hash(i,3,9)*COLS+Math.sin(s*.7+i*1.3)*2.5+COLS)%COLS, x=Math.floor(rx);
+    if(r>=1&&r<WL&&cov[r]&&cov[r][x]<.35){const ch=i%5===0?'*':i%2===0?'·':'.';put(ch,x,r,i%5===0?C.gold:C.hi,.45+.35*hash(i,4,9))}}}
 }
-

@@ -148,6 +148,7 @@ function priceOf(model, s) { const o = s && s.prices && s.prices[model]; return 
 // v = [uncached input, cache read, output, calls]
 const costOf = (model, v, s) => { const p = priceOf(model, s); return (v[0] * p[0] + v[1] * p[1] + v[2] * p[2]) / 1e6; };
 const bagCost = (bag, s) => Object.entries(bag || {}).reduce((a, [m, v]) => a + costOf(m, v, s), 0);
+const bagSaved = (bag, s) => Object.entries(bag || {}).reduce((a, [m, v]) => { const p = priceOf(m, s); return a + Math.max(0, (p[0] - p[1]) * v[1]) / 1e6; }, 0);
 const bagTokens = (bag) => Object.values(bag || {}).reduce((a, v) => a + v[0] + v[1] + v[2], 0);
 const sumBag = (bag) => Object.values(bag || {}).reduce((a, v) => [a[0] + v[0], a[1] + v[1], a[2] + v[2], a[3] + v[3]], [0, 0, 0, 0]);
 function money(usd, s, opts) {
@@ -158,9 +159,10 @@ function money(usd, s, opts) {
 }
 
 /* ---------------- shared store (usage + settings) ---------------- */
-const store = { usage: null, settings: { ...DEFAULTS }, loaded: false };
+const store = { usage: null, settings: { ...DEFAULTS }, loaded: false, modal: null };
 const subs = new Set();
 const emit = () => subs.forEach((f) => f());
+function openModal(m) { store.modal = m; emit(); }
 let timer = 0;
 async function api(ep, payload) {
   const post = ep === "settings/set";
@@ -222,13 +224,347 @@ function UpdateSection({ s }) {
     : `已是最新版本 · 检查于${ago(i.checkedAt)}`;
   const canUpdate = i && i.available && !i.pending;
   return h(React.Fragment, null,
-    h(Sec, { no: "V", en: "Updates", zh: "更新" }),
+    h(Sec, { no: "VI", en: "Updates", zh: "更新" }),
     h(Opt, { title: "Auto update", desc: mode === "auto" ? "启动后和每 12 小时从 GitHub 检查一次，有新版就自动下载，重启 Harness 后生效。" : mode === "notify" ? "只检查并提醒，由你手动点更新。" : "不自动检查，可以随时手动检查。" },
       h("div", { className: "ja-seg" }, [["auto", "自动"], ["notify", "仅提醒"], ["off", "关闭"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": mode === k, onClick: () => setSettings({ update: k }) }, l)))),
     h(Opt, { title: `Version · v${(i && i.current) || "…"}`, desc: status },
       canUpdate ? h("button", { type: "button", className: "ja-btn ja-btn-ink", disabled: upd.busy, onClick: updRun }, `更新到 v${i.latest}`)
         : h("button", { type: "button", className: "ja-btn", disabled: upd.busy, onClick: () => updCheck(true) }, "检查更新")));
 }
+
+/* ---------------- Pocket Atelier (LAN QR Code + Remote Bridge) ----------------
+ * Pure-JS ISO/IEC 18004 QR generator (Versions 1..5, Error Correction Level L, Byte mode)
+ * and live DOM bridge so a phone on the same Wi-Fi can scan & control the desktop. */
+function qrMatrix(str) {
+  const bytes = [...new TextEncoder().encode(str)];
+  const TAB = [[0, 0], [19, 7], [34, 10], [55, 15], [80, 20], [108, 26]];
+  let ver = 1;
+  while (ver <= 5 && TAB[ver][0] - 2 < bytes.length) ver++;
+  if (ver > 5) ver = 5;
+  const [dc, ec] = TAB[ver], data = bytes.slice(0, dc - 2), bits = [];
+  const push = (v, n) => { for (let i = n - 1; i >= 0; i--) bits.push((v >> i) & 1); };
+  push(4, 4); push(data.length, 8);
+  for (const b of data) push(b, 8);
+  push(0, Math.min(4, dc * 8 - bits.length));
+  while (bits.length & 7) bits.push(0);
+  const cw = [];
+  for (let i = 0; i < bits.length; i += 8) {
+    let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+    cw.push(b);
+  }
+  for (let p = 0; cw.length < dc; p ^= 1) cw.push(p ? 17 : 236);
+  const exp = new Uint8Array(512), log = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { exp[i] = exp[i + 255] = x; log[x] = i; x = (x << 1) ^ (x & 128 ? 285 : 0); }
+  const mul = (a, b) => (a && b ? exp[log[a] + log[b]] : 0);
+  let g = [1];
+  for (let i = 0; i < ec; i++) {
+    const ng = new Array(g.length + 1).fill(0);
+    for (let j = 0; j < g.length; j++) { ng[j] ^= g[j]; ng[j + 1] ^= mul(g[j], exp[i]); }
+    g = ng;
+  }
+  const rem = new Uint8Array(ec);
+  for (const b of cw) {
+    const f = b ^ rem[0];
+    rem.copyWithin(0, 1); rem[ec - 1] = 0;
+    if (f) for (let j = 0; j < ec; j++) rem[j] ^= mul(g[j + 1], f);
+  }
+  const all = [...cw, ...rem], N = 17 + ver * 4;
+  const M = Array.from({ length: N }, () => new Uint8Array(N)), R = Array.from({ length: N }, () => new Uint8Array(N));
+  const set = (r, c, v) => { if (r >= 0 && r < N && c >= 0 && c < N) { M[r][c] = v ? 1 : 0; R[r][c] = 1; } };
+  const finder = (r0, c0) => {
+    for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+      const ok = r >= 0 && r <= 6 && c >= 0 && c <= 6 && (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+      set(r0 + r, c0 + c, ok);
+    }
+  };
+  finder(0, 0); finder(0, N - 7); finder(N - 7, 0);
+  for (let i = 8; i < N - 8; i++) { set(6, i, i % 2 === 0); set(i, 6, i % 2 === 0); }
+  if (ver >= 2) {
+    const c0 = N - 7;
+    for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++) set(c0 + r, c0 + c, Math.max(Math.abs(r), Math.abs(c)) !== 1);
+  }
+  set(N - 8, 8, 1);
+  for (let i = 0; i < 8; i++) { R[8][i] = R[8][N - 1 - i] = R[i][8] = R[N - 1 - i][8] = 1; }
+  R[8][8] = 1;
+  let bi = 0;
+  for (let right = N - 1, up = true; right >= 1; right -= 2, up = !up) {
+    if (right === 6) right = 5;
+    for (let v = 0; v < N; v++) {
+      const r = up ? N - 1 - v : v;
+      for (let j = 0; j < 2; j++) {
+        const c = right - j;
+        if (!R[r][c]) {
+          const bit = bi < all.length * 8 ? (all[bi >> 3] >> (7 - (bi & 7))) & 1 : 0;
+          bi++;
+          M[r][c] = bit ^ ((r + c) % 2 === 0 ? 1 : 0);
+        }
+      }
+    }
+  }
+  const fmtBits = 0x77c4; // Level L (01), mask 0 (000) -> BCH 111011111000100
+  const fcoords = [];
+  for (let i = 0; i <= 5; i++) fcoords.push([8, i]);
+  fcoords.push([8, 7], [8, 8], [7, 8]);
+  for (let i = 5; i >= 0; i--) fcoords.push([i, 8]);
+  for (let i = 0; i < 15; i++) {
+    const bit = (fmtBits >> i) & 1;
+    const [r, c] = fcoords[i]; M[r][c] = bit;
+    if (i < 7) M[N - 1 - i][8] = bit; else M[8][N - 15 + i] = bit;
+  }
+  return M;
+}
+function QrSvg({ text, size }) {
+  const M = React.useMemo(() => qrMatrix(text || "http://127.0.0.1"), [text]);
+  const N = M.length, pad = 2, V = N + pad * 2, sz = size || 132;
+  let d = "";
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) if (M[r][c]) d += `M${c + pad} ${r + pad}h1v1h-1z`;
+  return h("svg", { width: sz, height: sz, viewBox: `0 0 ${V} ${V}`, shapeRendering: "crispEdges", "aria-label": "QR Code" },
+    h("rect", { width: V, height: V, fill: "var(--ja-paper, #FAF8F3)" }),
+    h("path", { d, fill: "var(--ja-ink, #2E2A24)" }));
+}
+
+const rem = { info: null, busy: false, err: "" };
+async function remApi(payload) {
+  const r = await fetch("api/jules-atelier.remote", {
+    credentials: "same-origin", cache: "no-store",
+    ...(payload ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) } : {}),
+  });
+  const res = await r.json().catch(() => null);
+  if (!res || !res.ok) throw new Error((res && res.error) || `HTTP ${r.status}`);
+  rem.info = res.value; emit();
+  return res.value;
+}
+async function remLoad() {
+  rem.busy = true; rem.err = ""; emit();
+  try { await remApi(); } catch (e) { rem.err = String(e.message || e); }
+  rem.busy = false; emit();
+}
+async function remAct(payload) {
+  rem.busy = true; rem.err = ""; emit();
+  try { await remApi(payload); } catch (e) { rem.err = String(e.message || e); }
+  rem.busy = false; emit();
+}
+function copyText(text, msg) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+    else { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    toast(msg || "已复制到剪贴板");
+  } catch {}
+}
+function PocketCard() {
+  const [, force] = React.useReducer((x) => x + 1, 0);
+  React.useEffect(() => {
+    subs.add(force);
+    if (!rem.info && !rem.busy) remLoad();
+    const iv = setInterval(() => { if (!document.hidden) remApi().catch(() => {}); }, 5000);
+    return () => { subs.delete(force); clearInterval(iv); };
+  }, []);
+  const i = rem.info;
+  const urls = (i && i.urls && i.urls.length ? i.urls : i && i.primaryUrl ? [i.primaryUrl] : i && i.localUrl ? [i.localUrl] : []);
+  const primary = urls[0] || "";
+  const clientCount = Array.isArray(i && i.clients) ? i.clients.length : (i && +i.clients) || 0;
+  return h("div", { className: "ja-qr-card" },
+    h("div", { className: "ja-qr-col" },
+      h("div", { className: "ja-qr-box" },
+        primary && i && i.listening ? h(QrSvg, { text: primary, size: 132 }) : h("div", { style: { width: 132, height: 132, display: "grid", placeItems: "center", fontSize: 11, color: "var(--dsw-alias-label-tertiary)" } }, i && !i.enabled ? "已关闭" : "正在启动…")),
+      h("span", { className: "ja-caps" }, "Scan with phone")),
+    h("div", { className: "ja-qr-meta" },
+      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+        h("h5", null, "Pocket Atelier · 掌中工坊"),
+        i ? h(Sw, { on: !!i.enabled, onChange: (v) => remAct({ enabled: v }), label: "Enable Pocket Atelier" }) : null),
+      h("p", null, rem.err ? "出错了：" + rem.err
+        : i && !i.enabled ? "局域网遥控服务已关闭。开启后，同一 Wi-Fi 下的手机扫码即可远程对话、审批工具、切换会话与遥控主题。"
+        : i && !(i.urls && i.urls.length) ? "当前未检测到局域网 IP（仅本机可访问）。请确认电脑已连接 Wi-Fi 或局域网。"
+        : "手机与电脑连接同一 Wi-Fi，用相机或浏览器扫左侧二维码即可进入掌中工坊（自带一次性鉴权，无需装 App）。"),
+      i && i.enabled ? h("div", { className: "ja-pin-row" },
+        h("span", { className: "ja-caps" }, "PIN"),
+        h("span", { className: "ja-pin", title: "点击复制 PIN", style: { cursor: "pointer" }, onClick: () => copyText(i.pin, "已复制 PIN · " + i.pin) }, i.pin || "------"),
+        h("button", { type: "button", className: "ja-btn", disabled: rem.busy, onClick: () => remAct({ resetPin: true }) }, "重置 PIN"),
+        h("span", { className: "ja-caps", style: { marginLeft: "auto", color: clientCount > 0 ? "var(--ja-gold)" : undefined } },
+          clientCount > 0 ? `● ${clientCount} 台设备已连接` : "等待手机扫码")) : null,
+      i && i.enabled && urls.length ? h("div", { className: "ja-url-list" },
+        urls.map((u) => h("button", { key: u, type: "button", className: "ja-url-pill", title: "点击复制完整带 PIN 链接", onClick: () => copyText(u, "已复制遥控链接") },
+          h("span", null, u.replace(/\?(k|pin)=.*$/, "")),
+          h("b", null, "复制链接")))) : null));
+}
+function PocketSection({ s }) {
+  const i = rem.info;
+  return h(React.Fragment, null,
+    h(Sec, { no: "V", en: "Pocket Atelier", zh: "移动端遥控" }),
+    h(PocketCard, { s }),
+    h(Opt, { title: "LAN port · 监听端口", desc: "默认 7788（若被占用会自动顺延）；可填入 1024–65535 之间的端口号方便手机存书签。" },
+      h(NumIn, { value: (i && i.port) || s.remotePort || 7788, width: 78, onCommit: (n) => remAct({ port: Math.round(n) }) })));
+}
+function PocketModal({ onClose }) {
+  React.useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); }, []);
+  return portal(h("div", { className: "ja-root ja-note-bg", onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
+    h("article", { className: "ja-note", role: "dialog", "aria-label": "Pocket Atelier", style: { maxWidth: 560, padding: "24px 26px 20px" } },
+      h("button", { type: "button", className: "ja-x", "aria-label": "关闭", onClick: onClose }, "×"),
+      h("header", { className: "ja-mast", style: { marginBottom: 14 } },
+        h("div", { className: "ja-mrow" },
+          h("span", { className: "ja-caps" }, "Pocket Atelier · LAN Remote"),
+          h("span", { className: "ja-caps" }, "Local Wi-Fi · 6-Digit PIN")),
+        h("div", { className: "ja-orn", "aria-hidden": true }, h("i"), h("span", { className: "ja-orn-whale" }), h("i"))),
+      h(PocketCard, null),
+      h("footer", { className: "ja-nfoot", style: { marginTop: 14 } },
+        h("span", null, "所有指令均通过本机局域网直连，不经过任何外部服务器"),
+        h("span", null, "Esc 关闭")))));
+}
+
+/* ---------------- Desktop <-> Host Live Bridge ---------------- */
+let activeSessionId = "", bridgeTimer = 0, bridgeBusy = false, pendingAck = [];
+function setNativeValue(el, val) {
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  const desc = Object.getOwnPropertyDescriptor(proto, "value");
+  if (desc && desc.set) desc.set.call(el, val); else el.value = val;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function sendDesktopPrompt(text) {
+  const msg = String(text || "").trim(); if (!msg) return false;
+  const ta = [...document.querySelectorAll("textarea")].find((e) => !e.closest(".ja-root") && e.offsetParent !== null);
+  const ce = !ta && [...document.querySelectorAll('[contenteditable="true"]')].find((e) => !e.closest(".ja-root") && e.offsetParent !== null);
+  const target = ta || ce;
+  if (!target) return false;
+  target.focus();
+  if (ta) setNativeValue(ta, msg);
+  else {
+    target.textContent = msg;
+    target.dispatchEvent(new InputEvent("input", { bubbles: true, data: msg, inputType: "insertText" }));
+  }
+  setTimeout(() => {
+    const dock = target.closest('[class*="composer"], [class*="input"], form') || target.parentElement?.parentElement || document.body;
+    const sendBtn = [...dock.querySelectorAll('button:not(:disabled)')].find((b) => !b.closest(".ja-root") && (/send|submit|发送/i.test((b.getAttribute("aria-label") || "") + " " + (b.title || "")) || b.type === "submit"));
+    if (sendBtn) sendBtn.click();
+    else target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+  }, 60);
+  return true;
+}
+function stopDesktopRun() {
+  const btns = [...document.querySelectorAll("button")].filter((b) => !b.closest(".ja-root") && b.offsetParent !== null);
+  const stopBtn = btns.find((b) => /stop|abort|cancel|停止|终止|中断/i.test((b.getAttribute("aria-label") || "") + " " + (b.title || "") + " " + (b.textContent || "")));
+  if (stopBtn) { stopBtn.click(); return true; }
+  return false;
+}
+function selectDesktopSession(id, title) {
+  if (!id && !title) return false;
+  activeSessionId = id || activeSessionId;
+  const sess = (store.usage && store.usage.sessions && store.usage.sessions.find((x) => x.id === id)) || null;
+  const wantTitle = (title || (sess && sess.title) || "").trim();
+  const rows = [...document.querySelectorAll('[class*="_navItem"], [class*="_sessionItem"], [class*="_item_"], a[href*="session"]')].filter((e) => !e.closest(".ja-root") && e.offsetParent !== null);
+  if (wantTitle) {
+    const exact = rows.find((r) => (r.textContent || "").trim() === wantTitle) || rows.find((r) => (r.textContent || "").includes(wantTitle));
+    if (exact) { exact.click(); return true; }
+  }
+  return false;
+}
+function startNewDesktopSession() {
+  const btns = [...document.querySelectorAll('button, [role="button"], a')].filter((b) => !b.closest(".ja-root") && b.offsetParent !== null);
+  const nb = btns.find((b) => /new chat|new session|新对话|新建会话|新会话/i.test((b.getAttribute("aria-label") || "") + " " + (b.title || "") + " " + (b.textContent || "")));
+  if (nb) { nb.click(); return true; }
+  return false;
+}
+function collectApprovals() {
+  const m = hashMap(), col = document.querySelector(remap("[class*=icaHSq_column]", m)) || document.body;
+  const btns = [...col.querySelectorAll("button:not(:disabled)")].filter((b) => !b.closest(".ja-root") && b.offsetParent !== null);
+  const out = [];
+  for (const b of btns) {
+    const label = (b.textContent || "").trim();
+    if (!label || label.length > 28) continue;
+    if (/^(allow|approve|accept|confirm|run|execute|reject|deny|skip|允许|同意|批准|确认|执行|运行|拒绝|跳过|始终允许)/i.test(label)) {
+      const card = b.closest('[class*="tool"], [class*="call"], [class*="confirm"], [class*="approval"], [class*="card"]') || b.parentElement?.parentElement;
+      const title = card ? ((card.querySelector("code, pre, strong, b")?.textContent || "").trim().slice(0, 80)) : "";
+      out.push({ id: "ap-" + out.length + "-" + label, label, title: title || "Tool confirmation", _el: b });
+    }
+  }
+  return out;
+}
+function collectLiveDom() {
+  const m = hashMap(), col = document.querySelector(remap("[class*=icaHSq_column]", m));
+  const busySel = remap("[class*=JXrxFq_markBusy], svg[class*=_spinnerMotion_]", m);
+  const domBusy = !!(document.querySelector(busySel) || document.querySelector("[class*=_indicator_] [class*=_dots_]"));
+  const sessions = (store.usage && store.usage.sessions) || [];
+  const cur = sessions.find((x) => x.id === activeSessionId) || sessions[0] || null;
+  let streamText = "";
+  const domMessages = [];
+  if (col) {
+    const blocks = [...col.querySelectorAll('[class*="markdown"], [class*="message"], [class*="bubble"]')].filter((e) => !e.closest(".ja-root"));
+    const tail = blocks.slice(-6);
+    for (const b of tail) {
+      const t = (b.textContent || "").trim();
+      if (t) domMessages.push({ role: /bubble/.test(b.className || "") ? "user" : "assistant", text: t.slice(-1800) });
+    }
+    if (domBusy && tail.length) streamText = (tail[tail.length - 1].textContent || "").trim().slice(-2400);
+  }
+  const apps = collectApprovals();
+  const phase = (() => { try { return localStorage.getItem("ja-phase") || "auto"; } catch { return "auto"; } })();
+  return {
+    live: {
+      sessionId: (cur && cur.id) || activeSessionId || "",
+      title: (cur && cur.title) || "",
+      cwd: (cur && cur.cwd) || "",
+      model: (cur && cur.model) || "",
+      running: domBusy || !!(cur && cur.running),
+      streamText,
+      streamThinking: "",
+      domMessages,
+      approvals: apps.map(({ id, label, title }) => ({ id, label, title })),
+      models: Object.keys((store.usage && store.usage.models) || {}),
+      workspaces: [...new Set(sessions.map((x) => x.cwd).filter(Boolean))].slice(0, 16),
+      phase,
+    },
+    _apps: apps,
+  };
+}
+function execRemoteCmd(cmd, apps) {
+  if (!cmd || !cmd.type) return;
+  const p = (cmd.payload && typeof cmd.payload === "object") ? cmd.payload : cmd;
+  if (cmd.type === "spout") { if (typeof window.__jaSpout === "function") window.__jaSpout(); }
+  else if (cmd.type === "setPhase") {
+    try { if (!p.phase || p.phase === "auto") localStorage.removeItem("ja-phase"); else localStorage.setItem("ja-phase", p.phase); } catch {}
+    if (typeof window.__jaRebuildWhale === "function") window.__jaRebuildWhale();
+    emit();
+  } else if (cmd.type === "syncSettings") { loadSettings(); }
+  else if (cmd.type === "send") {
+    if (p.sessionId && p.sessionId !== activeSessionId) selectDesktopSession(p.sessionId, p.title);
+    setTimeout(() => sendDesktopPrompt(p.text), p.sessionId && p.sessionId !== activeSessionId ? 220 : 10);
+  } else if (cmd.type === "stop") { stopDesktopRun(); }
+  else if (cmd.type === "newSession") { startNewDesktopSession(); }
+  else if (cmd.type === "selectSession") { selectDesktopSession(p.sessionId, p.title); }
+  else if (cmd.type === "approve") {
+    const hit = (apps || []).find((a) => a.id === p.id || a.label === p.label);
+    if (hit && hit._el) hit._el.click();
+  }
+}
+async function tickBridge() {
+  if (bridgeBusy || document.hidden) return;
+  bridgeBusy = true;
+  try {
+    const { live, _apps } = collectLiveDom();
+    const ack = pendingAck.splice(0, pendingAck.length);
+    const r = await fetch("api/jules-atelier.bridge", {
+      method: "POST", credentials: "same-origin", cache: "no-store",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ live, ack }),
+    });
+    const res = r.ok ? await r.json().catch(() => null) : null;
+    const cmds = (res && res.value && res.value.cmds) || (res && res.cmds);
+    if (res && res.ok && Array.isArray(cmds)) {
+      for (const c of cmds) {
+        execRemoteCmd(c, _apps);
+        if (c && c.id) pendingAck.push(c.id);
+      }
+      if (pendingAck.length) setTimeout(tickBridge, 80);
+    }
+  } catch {}
+  bridgeBusy = false;
+}
+function startBridge() {
+  if (bridgeTimer) return;
+  tickBridge();
+  bridgeTimer = setInterval(tickBridge, 1400);
+}
+function stopBridge() { clearInterval(bridgeTimer); bridgeTimer = 0; }
 
 let saveTimer = 0;
 function setSettings(patch) {
@@ -280,13 +616,14 @@ function derive(u, s) {
   const all = sumBag((u && u.models) || {});
   const monthCost = Object.entries(dayCost).filter(([k]) => k.startsWith(month)).reduce((a, [, v]) => a + v, 0);
   const totalCost = bagCost((u && u.models) || {}, s);
+  const totalSaved = bagSaved((u && u.models) || {}, s);
   const sessions = (u && u.sessions) || [];
-  const d = { days, dayCost, keys, total, avg, today, peak, streak, first, dayNo, todayIso, todayCost: dayCost[todayIso] || 0, avgCost, monthCost, totalCost,
+  const d = { days, dayCost, keys, total, avg, today, peak, streak, first, dayNo, todayIso, todayCost: dayCost[todayIso] || 0, avgCost, monthCost, totalCost, totalSaved,
     sessions: sessions.length, running: sessions.filter((x) => x.running).length, cache: all[1] / Math.max(1, all[0] + all[1]) };
   memo = { u, s, d };
   return d;
 }
-const lastDays = (d, n) => { const out = []; for (let i = n - 1; i >= 0; i--) { const t = new Date(); t.setDate(t.getDate() - i); const k = iso(t); out.push([k, d.dayCost[k] || 0]); } return out; };
+const lastDays = (d, n) => { const out = []; for (let i = n - 1; i >= 0; i--) { const t = new Date(); t.setDate(t.getDate() - i); const k = iso(t); out.push([k, d.dayCost[k] || 0, d.days[k] || 0]); } return out; };
 /* ---------------- whale engine ---------------- */
 function mountWhale(plate, cv, D) {
   const ctx = cv.getContext("2d");
@@ -297,13 +634,14 @@ __WHALE__
   plate.addEventListener("click", () => { if (S) S.nextSpout = 0; });
   let raf = 0, dead = false, t0 = performance.now();
   const T = () => performance.now() - t0;
+  window.__jaRebuildWhale = () => { if (!dead) { build(); draw(T()); } };
   const ro = new ResizeObserver(() => { build(); draw(T()); }); ro.observe(plate);
   const mo = new MutationObserver(() => { build(); }); mo.observe(document.body, { attributes: true, attributeFilter: ["data-ds-dark-theme", "style", "class"] });
   const io = new IntersectionObserver((e) => { visible = e[0].isIntersecting; }); io.observe(plate);
   build();
   if (reduce) draw(6000);
   else { let last = -1; const loop = () => { if (dead) return; const t = T(); if (visible && !document.hidden && t - last >= 33) { draw(t); last = t; } raf = requestAnimationFrame(loop); }; raf = requestAnimationFrame(loop); }
-  return () => { dead = true; cancelAnimationFrame(raf); ro.disconnect(); mo.disconnect(); io.disconnect(); };
+  return () => { dead = true; if (window.__jaRebuildWhale) delete window.__jaRebuildWhale; cancelAnimationFrame(raf); ro.disconnect(); mo.disconnect(); io.disconnect(); };
 }
 
 /* ---------------- components ---------------- */
@@ -315,28 +653,61 @@ function greeting() {
   if (hr < 18) return ["Good afternoon", "下午好"]; return ["Good evening", "晚上好"];
 }
 function Heat({ d, s, onDay }) {
-  const gridRef = React.useRef(null), [weeks, setWeeks] = React.useState(18);
+  const wrapRef = React.useRef(null), gridRef = React.useRef(null), [weeks, setWeeks] = React.useState(18);
+  const [tip, setTip] = React.useState(null);
   React.useLayoutEffect(() => {
     const el = gridRef.current; if (!el || typeof ResizeObserver === "undefined") return;
     const fit = () => { const n = Math.max(8, Math.min(53, Math.floor((el.clientWidth + 3) / 12))); setWeeks((w) => (w === n ? w : n)); };
     const ro = new ResizeObserver(fit); ro.observe(el); fit(); return () => ro.disconnect();
   }, []);
-  const cells = [], end = new Date(); end.setHours(0, 0, 0, 0);
+  const cells = [], monthCols = [], end = new Date(); end.setHours(0, 0, 0, 0);
   const start = new Date(end); start.setDate(end.getDate() - end.getDay() - (weeks - 1) * 7);
   const lv = (v) => { if (!v) return 0; const r = v / (d.peak || 1); return r < .06 ? 1 : r < .2 ? 2 : r < .5 ? 3 : 4; };
+  let lastM = -1, lastCol = -9;
+  for (let w = 0; w < weeks; w++) {
+    const wd = new Date(start); wd.setDate(start.getDate() + w * 7);
+    const m = wd.getMonth();
+    if (m !== lastM && w - lastCol >= 3) { monthCols.push(h("span", { key: w }, MONTHS[m])); lastM = m; lastCol = w; }
+    else monthCols.push(h("span", { key: w }));
+  }
   for (let i = 0; i < weeks * 7; i++) {
     const day = new Date(start); day.setDate(start.getDate() + i);
-    const k = iso(day), v = d.days[k] || 0, l = lv(v), future = day > end;
-    cells.push(h("i", { key: k, title: `${k} · ${fmt(v)} tokens · ${money(d.dayCost[k] || 0, s)}${v && onDay ? " · 点击看日报" : ""}`, className: v && onDay ? "ja-on" : undefined, onClick: v && onDay ? () => onDay(k) : undefined, style: { background: l ? `var(--h${l})` : undefined, opacity: future ? 0 : 1 } }));
+    const k = iso(day), v = d.days[k] || 0, l = lv(v), future = day > end, isToday = k === d.todayIso;
+    const cls = [v && onDay ? "ja-on" : "", isToday ? "ja-today-cell" : ""].filter(Boolean).join(" ") || undefined;
+    cells.push(h("i", {
+      key: k, className: cls,
+      onClick: v && onDay ? () => onDay(k) : undefined,
+      onPointerEnter: future ? undefined : (e) => {
+        const wr = wrapRef.current && wrapRef.current.getBoundingClientRect();
+        const cr = e.currentTarget.getBoundingClientRect();
+        if (wr) setTip({ k, v, cost: d.dayCost[k] || 0, x: Math.max(48, Math.min(wr.width - 48, cr.left - wr.left + cr.width / 2)), y: cr.top - wr.top });
+      },
+      style: { background: l ? `var(--h${l})` : undefined, opacity: future ? 0 : 1 },
+    }));
   }
   const stat = (label, n, unit, cls) => h("div", { key: label }, h("small", { className: "ja-caps" }, label), h("b", { className: cls }, n, unit ? h("u", null, unit) : null));
   const [t1, t2] = split(d.total), [ts, tv] = money(d.todayCost, s, "parts"), [ms, mv] = money(d.monthCost, s, "parts");
   return h("div", { className: "ja-heat" },
-    h("div", { className: "ja-grid", ref: gridRef, "aria-label": "Token heatmap" }, cells),
+    h("div", { className: "ja-heat-wrap", ref: wrapRef, onPointerLeave: () => setTip(null) },
+      h("div", { className: "ja-months", "aria-hidden": true }, monthCols),
+      h("div", { className: "ja-grid", ref: gridRef, "aria-label": "Token heatmap" }, cells),
+      tip ? h("div", { className: "ja-htip", style: { left: tip.x, top: tip.y } },
+        `${tip.k} · ${fmt(tip.v)} tok · `, h("b", null, money(tip.cost, s)), tip.v && onDay ? " · 点看日报" : "") : null),
     h("div", { className: "ja-stats" },
       stat("Today", h(React.Fragment, null, h("u", { style: { marginLeft: 0, marginRight: 2 } }, ts), tv), null, "ja-money"),
       stat(MONTHS[new Date().getMonth()], h(React.Fragment, null, h("u", { style: { marginLeft: 0, marginRight: 2 } }, ms), mv)),
       stat("Tokens", t1, t2), stat("Streak", d.streak, "天")));
+}
+function GlobalModalHost() {
+  const m = store.modal;
+  if (!m) return null;
+  if (m.type === "pocket") return h(PocketModal, { onClose: () => openModal(null) });
+  if (m.type === "note") return h(NoteView, { note: m.note, onClose: () => openModal(null) });
+  if (m.type === "settings") return portal(h("div", { className: "ja-root ja-note-bg", onPointerDown: (e) => { if (e.target === e.currentTarget) openModal(null); } },
+    h("article", { className: "ja-note", role: "dialog", "aria-label": "Atelier Settings", style: { maxWidth: 680, maxHeight: "86vh", overflowY: "auto" } },
+      h("button", { type: "button", className: "ja-x", "aria-label": "关闭", onClick: () => openModal(null) }, "×"),
+      h(AtelierSettings, null))));
+  return null;
 }
 function HeroMark() {
   const st = useStore(), u = st.usage, s = st.settings, d = derive(u, s);
@@ -344,20 +715,41 @@ function HeroMark() {
   const busy = Math.min(1, d.today / (d.avg || 1));
   dataRef.current.gap = 18 - 12 * busy; dataRef.current.running = d.running;
   const showPlate = s.hero !== false;
-  const now = new Date(), occ = occasion(now), phase = (() => { try { return localStorage.getItem("ja-phase"); } catch { return null; } })() || phaseOf(now.getHours());
-  dataRef.current.phase = s.timeOfDay === false ? "day" : phase; dataRef.current.full = !!(occ && occ[2] === "moon");
+  const now = new Date(), occ = occasion(now);
+  const rawPhase = (() => { try { return localStorage.getItem("ja-phase") || "auto"; } catch { return "auto"; } })();
+  const autoPhase = occ && occ[2] === "snow" ? "snow" : phaseOf(now.getHours());
+  const phase = rawPhase === "auto" ? (s.timeOfDay === false ? "day" : autoPhase) : rawPhase;
+  dataRef.current.phase = phase === "snow" ? phaseOf(now.getHours()) : phase;
+  dataRef.current.full = !!(occ && occ[2] === "moon");
+  dataRef.current.snow = phase === "snow" || !!(occ && occ[2] === "snow");
   React.useEffect(() => showPlate ? mountWhale(plateRef.current, cvRef.current, dataRef.current) : undefined, [showPlate]);
   const [note, setNote] = React.useState(null);
   const [en] = occ || greeting();
   const first = d.first ? new Date(d.first) : now;
+  const cyclePhase = (e) => {
+    e.stopPropagation();
+    const order = ["auto", "dawn", "day", "dusk", "night", "snow"];
+    const next = order[(order.indexOf(rawPhase) + 1) % order.length];
+    try { if (next === "auto") localStorage.removeItem("ja-phase"); else localStorage.setItem("ja-phase", next); } catch {}
+    emit();
+    setTimeout(() => { if (typeof window.__jaRebuildWhale === "function") window.__jaRebuildWhale(); }, 20);
+  };
+  const phaseLabel = { dawn: "Dawn · 晨", day: "Noon · 昼", dusk: "Dusk · 暮", night: "Nocturne · 夜", snow: "Snow · 雪" }[phase] || "Noon";
+  const openGazette = () => {
+    const p = pendingNote(d) || { kind: "day", day: d.keys[d.keys.length - 1] || d.todayIso };
+    setNote(p);
+  };
   return h("div", { className: "ja-root ja-hero" },
     h("div", { className: "ja-dl" },
       h("span", { className: "ja-caps" }, `${WEEK[now.getDay()]} · ${MONTHS[now.getMonth()]} ${now.getDate()}`),
       h("span", { className: "ja-rule" }),
-      h("span", { className: "ja-caps" }, `Day ${d.dayNo} · since ${MONTHS[first.getMonth()]} ${first.getDate()}`)),
-    showPlate ? h("div", { className: "ja-plate", ref: plateRef, title: "移动鼠标打光 · 点击喷水" },
+      h("span", { className: "ja-caps" }, `Day ${d.dayNo} · since ${MONTHS[first.getMonth()]} ${first.getDate()}`),
+      s.notes !== false ? h("button", { type: "button", className: "ja-dl-btn", title: "翻阅工坊小记（日报 / 周报 / 月报）", onClick: openGazette }, "Gazette ›") : null,
+      h("button", { type: "button", className: "ja-dl-btn", title: "打开手机扫码遥控（Pocket Atelier）", onClick: () => openModal({ type: "pocket" }) }, "Pocket ⚃")),
+    showPlate ? h("div", { className: "ja-plate", ref: plateRef, title: "移动鼠标打光 · 点击喷水 · 左上角切换昼夜节气" },
       h("canvas", { ref: cvRef, "aria-label": "ASCII whale" }),
-      h("span", { className: "ja-pc ja-tl" }, "Plate ", h("b", null, "XII"), s.timeOfDay === false ? null : " · " + { dawn: "Dawn", day: "Noon", dusk: "Dusk", night: "Nocturne" }[phase])) : null,
+      h("span", { className: "ja-pc ja-tl", role: "button", tabIndex: 0, title: "点击切换铜版画时辰 / 飞雪预览（当前：" + (rawPhase === "auto" ? "自动" : rawPhase) + "）", onClick: cyclePhase },
+        "Plate ", h("b", null, "XII"), " · ", phaseLabel, rawPhase !== "auto" ? " ✦" : "")) : null,
     h("p", { className: "ja-line" }, `${en}, ${displayName(st)} — `, h("em", null, occ ? occ[1] + "." : "one piece at a time.")),
     u && s.notes !== false ? h(NoteCard, { d, s, onOpen: setNote }) : null,
     u && s.heat !== false ? h(Heat, { d, s, onDay: s.notes !== false ? (k) => setNote({ kind: "day", day: k }) : null }) : null,
@@ -385,7 +777,9 @@ function BrandMark({ size }) {
 }
 function BrandName() {
   const st = useStore();
-  return h("span", { className: "ja-root ja-name" }, h("b", null, displayName(st)), h("span", null, "Atelier"));
+  return h(React.Fragment, null,
+    h("span", { className: "ja-root ja-name" }, h("b", null, displayName(st)), h("span", null, "Atelier")),
+    h(GlobalModalHost, null));
 }
 
 /* ---- popover plumbing ---- */
@@ -411,9 +805,17 @@ function usePopover() {
 }
 const portal = (node) => ReactDOM.createPortal(node, document.body);
 
-function Spark({ d, n }) {
+function Spark({ d, n, onHover, onSelectDay }) {
   const days = lastDays(d, n), max = Math.max(1e-9, ...days.map((x) => x[1]));
-  return h("div", { className: "ja-spark", "aria-hidden": true }, days.map(([k, v]) => h("i", { key: k, className: k === d.todayIso ? "ja-today" : undefined, title: `${k} · ${money(v, store.settings)}`, style: { height: `${Math.max(4, (v / max) * 100)}%` } })));
+  return h("div", { className: "ja-spark", "aria-hidden": true, onPointerLeave: onHover ? () => onHover(null) : undefined },
+    days.map(([k, v, tok]) => h("i", {
+      key: k,
+      className: k === d.todayIso ? "ja-today" : undefined,
+      title: `${k} · ${money(v, store.settings)} · ${fmt(tok)} tok`,
+      onPointerEnter: onHover ? () => onHover({ k, v, tok }) : undefined,
+      onClick: onSelectDay && tok > 0 ? (e) => { e.stopPropagation(); onSelectDay(k); } : undefined,
+      style: { height: `${Math.max(4, (v / max) * 100)}%`, cursor: onSelectDay && tok > 0 ? "pointer" : undefined },
+    })));
 }
 function BudgetBar({ d, s }) {
   const ref = s.budget > 0 ? s.budget / (s.currency === "CNY" ? +s.rate || 7.1 : 1) : d.avgCost * 1.5;
@@ -423,11 +825,13 @@ function BudgetBar({ d, s }) {
     h("div", { className: "ja-meta" }, h("span", null, "Today ", h("b", null, money(d.todayCost, s))),
       h("span", null, s.budget > 0 ? `budget ${money(ref, s)}` : `avg ${money(d.avgCost, s)}/day`)));
 }
-function LedgerPanel({ session, d, s, onSettings }) {
+function LedgerPanel({ session, d, s, onClose }) {
+  const [hov, setHov] = React.useState(null);
   const by = (session && session.by) || {}, tot = sumBag(by), p = (i) => Object.entries(by).reduce((a, [m, v]) => a + (v[i] * priceOf(m, s)[i]) / 1e6, 0);
-  const cost = bagCost(by, s), ctxPct = session && session.ctxWin ? Math.min(100, (session.ctxUsed / session.ctxWin) * 100) : 0;
+  const cost = bagCost(by, s), saved = bagSaved(by, s), ctxPct = session && session.ctxWin ? Math.min(100, (session.ctxUsed / session.ctxWin) * 100) : 0;
   const models = Object.entries(by).sort((a, b) => costOf(b[0], b[1], s) - costOf(a[0], a[1], s));
   const row = (label, tokens, usd, key) => h("div", { className: "ja-row", key: key || label }, h("span", null, label), h("i", null, fmt(tokens)), h("b", null, money(usd, s)));
+  const goModal = (m) => { if (onClose) onClose(); openModal(m); };
   return h(React.Fragment, null,
     h("section", null,
       h("h4", null, "Ledger · this session"),
@@ -435,27 +839,47 @@ function LedgerPanel({ session, d, s, onSettings }) {
       session && session.title ? h("div", { className: "ja-title" }, session.title) : h("div", { className: "ja-title" }, "A fresh sheet — nothing spent yet.")),
     tot[3] ? h("section", null,
       row("Input", tot[0], p(0)), row("Cache read", tot[1], p(1)), row("Output", tot[2], p(2)),
-      h("div", { className: "ja-meta", style: { marginTop: 6 } }, h("span", null, `${tot[3]} calls · ${session.turns || 0} turns`), h("span", null, `cache hit ${Math.round((tot[1] / Math.max(1, tot[0] + tot[1])) * 100)}%`))) : null,
+      h("div", { className: "ja-meta", style: { marginTop: 6 } },
+        h("span", null, `${tot[3]} calls · ${session.turns || 0} turns`),
+        h("span", null, `cache ${Math.round((tot[1] / Math.max(1, tot[0] + tot[1])) * 100)}%` + (saved >= 0.001 ? ` · 省 ${money(saved, s)}` : "")))) : null,
     models.length > 1 ? h("section", null, h("h4", null, "By model"), h("div", { style: { marginTop: 6 } },
       models.map(([m, v]) => h("div", { className: "ja-row ja-model", key: m }, h("span", null, h("i", { className: "ja-dot" }), h("em", null, m)), h("i", null, fmt(v[0] + v[1] + v[2])), h("b", null, money(costOf(m, v, s), s)))))) : null,
     session && session.ctxWin ? h("section", null, h("h4", null, "Context"),
       h("div", { className: "ja-bar" + (ctxPct > 85 ? " ja-warn" : "") }, h("i", { style: { width: `${ctxPct}%` } })),
       h("div", { className: "ja-meta" }, h("span", null, h("b", null, fmt(session.ctxUsed)), ` / ${fmt(session.ctxWin)}`), h("span", null, `${Math.round(ctxPct)}% · ${session.compactions || 0} compactions`))) : null,
-    h("section", null, h("h4", null, "The house · last 14 days"), h(Spark, { d, n: 14 }), h(BudgetBar, { d, s }),
-      h("div", { className: "ja-meta", style: { marginTop: 4 } }, h("span", null, `${MONTHS[new Date().getMonth()]} `, h("b", null, money(d.monthCost, s))), h("span", null, "all time ", h("b", null, money(d.totalCost, s))))),
-    h("div", { className: "ja-foot" }, h("span", null, "prices are estimates."), h("span", { className: "ja-caps" }, "Settings → Atelier")));
+    h("section", null,
+      h("h4", null, hov ? `${hov.k.slice(5)} · ${money(hov.v, s)} · ${fmt(hov.tok)} tok` : "The house · last 14 days"),
+      h(Spark, { d, n: 14, onHover: setHov, onSelectDay: (k) => goModal({ type: "note", note: { kind: "day", day: k } }) }),
+      h(BudgetBar, { d, s }),
+      h("div", { className: "ja-meta", style: { marginTop: 4 } },
+        h("span", null, `${MONTHS[new Date().getMonth()]} `, h("b", null, money(d.monthCost, s))),
+        h("span", null, "all time ", h("b", null, money(d.totalCost, s))))),
+    h("div", { className: "ja-foot" },
+      h("span", null, d.totalSaved >= 0.01 ? `cache 累计省 ${money(d.totalSaved, s)}` : "prices are estimates."),
+      h("div", { className: "ja-foot-btns" },
+        h("button", { type: "button", className: "ja-foot-link", onClick: () => goModal({ type: "note", note: pendingNote(d) || { kind: "day", day: d.todayIso } }) }, "小记"),
+        h("span", null, "·"),
+        h("button", { type: "button", className: "ja-foot-link", onClick: () => goModal({ type: "pocket" }) }, "遥控"),
+        h("span", null, "·"),
+        h("button", { type: "button", className: "ja-foot-link", onClick: () => goModal({ type: "settings" }) }, "Settings ›"))));
+}
+function isOverBudget(d, s) {
+  if (!(s.budget > 0)) return false;
+  const ref = s.budget / (s.currency === "CNY" ? +s.rate || 7.1 : 1);
+  return d.todayCost > ref;
 }
 function LedgerChip({ sessionId }) {
   const st = useStore(), s = st.settings, d = derive(st.usage, s), pop = usePopover();
+  React.useEffect(() => { if (sessionId) activeSessionId = sessionId; }, [sessionId]);
   if (s.ledger === false || !st.usage) return null;
   const session = st.usage.sessions.find((x) => x.id === sessionId);
-  const cost = session ? bagCost(session.by, s) : 0, tok = session ? bagTokens(session.by) : 0;
+  const cost = session ? bagCost(session.by, s) : 0, over = isOverBudget(d, s);
   return h(React.Fragment, null,
-    h("button", { type: "button", ref: pop.anchor, className: "ja-root ja-chip" + (session && session.running ? " ja-live" : ""), "aria-expanded": pop.open, "aria-label": "Session ledger", title: "本会话费用 · 点击查看账本",
+    h("button", { type: "button", ref: pop.anchor, className: "ja-root ja-chip" + (session && session.running ? " ja-live" : "") + (over ? " ja-over" : ""), "aria-expanded": pop.open, "aria-label": "Session ledger", title: (over ? "今日已超预算 · " : "") + "本会话费用 · 点击查看账本",
       onClick: () => { if (!pop.open) refresh(true); pop.setOpen(!pop.open); } },
       h("span", { className: "ja-coin" }, s.currency === "CNY" ? "¥" : "$"), h("b", null, money(cost, s).replace(/^[¥$]/, ""))),
     pop.open ? portal(h("div", { ref: pop.panel, className: "ja-root ja-panel", role: "dialog", "aria-label": "Ledger", style: pop.pos || { visibility: "hidden", left: 0, top: 0 } },
-      h(LedgerPanel, { session, d, s, onSettings: null }))) : null);
+      h(LedgerPanel, { session, d, s, onClose: () => pop.setOpen(false) }))) : null);
 }
 function SessionHover({ sessionId }) {
   const st = useStore(), s = st.settings;
@@ -480,14 +904,14 @@ function SessionHover({ sessionId }) {
 function SideLedger() {
   const st = useStore(), s = st.settings, d = derive(st.usage, s), pop = usePopover();
   if (s.sideLedger === false || !st.usage) return null;
-  const latest = st.usage.sessions[0];
+  const latest = st.usage.sessions[0], over = isOverBudget(d, s);
   return h(React.Fragment, null,
-    h("button", { type: "button", ref: pop.anchor, className: "ja-root ja-side", "aria-expanded": pop.open, title: "今日费用 · 点击查看账本", onClick: () => pop.setOpen(!pop.open) },
+    h("button", { type: "button", ref: pop.anchor, className: "ja-root ja-side" + (over ? " ja-over" : ""), "aria-expanded": pop.open, title: (over ? "今日已超预算 · " : "") + "今日费用 · 点击查看账本", onClick: () => pop.setOpen(!pop.open) },
       h("div", { className: "ja-top" }, h("span", { className: "ja-caps" }, "Today"), h("b", null, money(d.todayCost, s))),
       h(Spark, { d, n: 14 }),
       h("div", { className: "ja-meta", style: { marginTop: 5 } }, h("span", null, `${fmt(d.today)} tok`), h("span", null, `${MONTHS[new Date().getMonth()]} ${money(d.monthCost, s)}`))),
     pop.open ? portal(h("div", { ref: pop.panel, className: "ja-root ja-panel", role: "dialog", "aria-label": "Ledger", style: pop.pos || { visibility: "hidden", left: 0, top: 0 } },
-      h(LedgerPanel, { session: latest, d, s, onSettings: null }))) : null);
+      h(LedgerPanel, { session: latest, d, s, onClose: () => pop.setOpen(false) }))) : null);
 }
 
 /* ---- settings section ---- */
@@ -511,14 +935,15 @@ function AtelierSettings() {
   const models = Object.entries((st.usage && st.usage.models) || {}).sort((a, b) => costOf(b[0], b[1], s) - costOf(a[0], a[1], s));
   const setPrice = (m, i, n) => { const cur = priceOf(m, s).slice(); cur[i] = n; setSettings({ prices: { ...s.prices, [m]: cur } }); };
   const resetPrice = (m) => { const next = { ...s.prices }; delete next[m]; setSettings({ prices: next }); };
+  const curPal = s.palette === "ink" ? "ink" : s.palette === "cinnabar" ? "cinnabar" : "atelier";
   return h("div", { className: "ja-root ja-set" },
     h("header", null, h("div", null, h("span", { className: "ja-caps" }, "Atelier · v" + ((upd.info && upd.info.current) || VERSION)), h("h3", null, "The ", h("em", null, "atelier"), " settings"),
-      h("p", null, "纸与金的皮肤、鲸鱼首页、账本与上下文——全部在本机计算，不上传任何数据。")),
+      h("p", null, "纸与金的皮肤、鲸鱼首页、账本、二十四节气与局域网掌中遥控——全部在本机计算，不上传任何数据。")),
       h(BrandMark, { size: 44 })),
     h(Opt, { title: "Name", desc: "侧栏字标、首页问候里显示的名字。留空则自动读取账号名或系统用户名。" }, h(TxtIn, { value: s.name || "", placeholder: (() => { const a = accountName() || (st.usage && st.usage.user) || ""; return a ? "auto · " + a : "auto"; })(), onCommit: set("name") })),
     h(Sec, { no: "I", en: "Appearance", zh: "外观" }),
-    h(Opt, { title: "Palette", desc: "纸与金：暖白纸色配金线；墨与青：冷调宣纸配青瓷色。浅色与深色模式各自适配。" },
-      h("div", { className: "ja-seg" }, [["atelier", "纸与金"], ["ink", "墨与青"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": (s.palette === "ink" ? "ink" : "atelier") === k, onClick: () => setSettings({ palette: k }) }, l)))),
+    h(Opt, { title: "Palette", desc: "纸与金：暖白纸色配金线；墨与青：冷调宣纸配青瓷色；楮与朱：桑皮纸配藏书印泥朱砂色。浅深色各自适配。" },
+      h("div", { className: "ja-seg" }, [["atelier", "纸与金"], ["ink", "墨与青"], ["cinnabar", "楮与朱"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": curPal === k, onClick: () => setSettings({ palette: k }) }, l)))),
     h(Opt, { title: "Atelier skin", desc: "纸色、金线、墨色按钮，覆盖侧栏、消息、输入框、弹窗与菜单。关闭后只保留配色。" }, h(Sw, { on: s.skin, onChange: set("skin"), label: "Atelier skin" })),
     h(Opt, { title: "Engraved icons", desc: "侧栏、输入框、消息操作栏的小图标换成手绘的细线版本，带一点金色点缀。" }, h(Sw, { on: s.icons !== false, onChange: set("icons"), label: "Engraved icons" })),
     h(Opt, { title: "Typography", desc: "正文 Manrope + 苹方，标题与数字 Cormorant Garamond。" }, h(Sw, { on: s.fonts, onChange: set("fonts"), label: "Typography" })),
@@ -526,13 +951,13 @@ function AtelierSettings() {
     h(Opt, { title: "Conversation sea", desc: "会话背景里一片字符画海面：浅色有日光与海鸥，深色有月与星；AI 工作时浪会大一些，偶尔有鲸鱼游过。" }, h(Sw, { on: s.sea !== false, onChange: set("sea"), label: "Conversation sea" })),
     h(Opt, { title: "Motion", desc: "消息浮现、按钮金光扫过、弹窗过渡。系统开启“减少动态效果”时自动停用。" }, h(Sw, { on: s.motion, onChange: set("motion"), label: "Motion" })),
     h(Sec, { no: "II", en: "Home", zh: "首页" }),
-    h(Opt, { title: "Engraved whale", desc: "首页铜版鲸鱼：今天用得越多刻线越密，会话运行时会喷水。" }, h(Sw, { on: s.hero, onChange: set("hero"), label: "Whale" })),
-    h(Opt, { title: "Time of day", desc: "首页铜版随时间变化：清晨薄雾、白天日轮、傍晚暖金、深夜星点和弯月；节日会换一句问候。" }, h(Sw, { on: s.timeOfDay !== false, onChange: set("timeOfDay"), label: "Time of day" })),
-    h(Opt, { title: "Daily & weekly notes", desc: "首页出现「昨日小记」，周一换成「上周小记」；点热力图的任意一天也能翻看那天的日报。" }, h(Sw, { on: s.notes !== false, onChange: set("notes"), label: "Notes" })),
-    h(Opt, { title: "Token heatmap", desc: "铺满宽度的每日用量热力图，加上今日 / 本月费用。" }, h(Sw, { on: s.heat, onChange: set("heat"), label: "Heatmap" })),
+    h(Opt, { title: "Engraved whale", desc: "首页铜版鲸鱼：今天用得越多刻线越密，会话运行时会喷水；点左上角 Plate XII 可切换晨/昼/暮/夜/飞雪预览。" }, h(Sw, { on: s.hero, onChange: set("hero"), label: "Whale" })),
+    h(Opt, { title: "Time of day & solar terms", desc: "首页铜版随时间与二十四节气变化：清晨薄雾、白天日轮、傍晚暖金、深夜星点与弯月、冬季飞雪。" }, h(Sw, { on: s.timeOfDay !== false, onChange: set("timeOfDay"), label: "Time of day" })),
+    h(Opt, { title: "Daily, weekly & monthly notes", desc: "首页出现「昨日小记」，周一换成「上周小记」；支持日报、周报、月报切换与一键拓印 Markdown。" }, h(Sw, { on: s.notes !== false, onChange: set("notes"), label: "Notes" })),
+    h(Opt, { title: "Token heatmap", desc: "铺满宽度的每日用量热力图（带月份刻度与即时浮签），加上今日 / 本月费用。" }, h(Sw, { on: s.heat, onChange: set("heat"), label: "Heatmap" })),
     h(Sec, { no: "III", en: "Ledger", zh: "账本" }),
-    h(Opt, { title: "Session ledger", desc: "输入框下方显示本会话费用，点开看分项、模型与上下文占用。" }, h(Sw, { on: s.ledger, onChange: set("ledger"), label: "Session ledger" })),
-    h(Opt, { title: "Sidebar ledger", desc: "侧栏底部显示今日费用和 14 天走势。" }, h(Sw, { on: s.sideLedger, onChange: set("sideLedger"), label: "Sidebar ledger" })),
+    h(Opt, { title: "Session ledger", desc: "输入框下方显示本会话费用，点开看分项、缓存省钱额、模型与上下文占用。" }, h(Sw, { on: s.ledger, onChange: set("ledger"), label: "Session ledger" })),
+    h(Opt, { title: "Sidebar ledger", desc: "侧栏底部显示今日费用和 14 天走势，超预算时亮起琥珀微光。" }, h(Sw, { on: s.sideLedger, onChange: set("sideLedger"), label: "Sidebar ledger" })),
     h(Opt, { title: "Currency", desc: s.currency === "CNY" ? "价格表以美元计，按汇率换算。" : "价格表原样以美元显示。" },
       s.currency === "CNY" ? h("label", { className: "ja-rate" }, h("span", null, "$1 ="), h(NumIn, { value: s.rate, onCommit: set("rate"), width: 64 }), h("span", null, "¥")) : null,
       h("div", { className: "ja-seg" }, ["CNY", "USD"].map((c) => h("button", { key: c, type: "button", "aria-pressed": s.currency === c, onClick: () => setSettings({ currency: c }) }, c === "CNY" ? "¥ CNY" : "$ USD")))),
@@ -550,11 +975,12 @@ function AtelierSettings() {
           h("td", null, custom ? h("button", { type: "button", className: "ja-link", onClick: () => resetPrice(m) }, "Reset") : null));
       })))),
     h("p", { className: "ja-fine" }, "价格为估算值：标注 est. 的模型请按你的实际账单改一下，改动会立即反映到账本与首页。"),
+    h(PocketSection, { s }),
     h(UpdateSection, { s }),
     h("footer", { className: "ja-colo" }, h("i", { className: "ja-rule" }), h("span", null, "one piece at a time."), h("i", { className: "ja-rule" })));
 }
 
-/* ---------------- daily & weekly notes ----------------
+/* ---------------- daily, weekly & monthly notes ----------------
  * A small "gazette" composed from the host's report endpoint: yesterday's note on the
  * home page (last week's on Mondays), a full page with history navigation, and
  * heatmap cells that open the note for that day. */
@@ -570,7 +996,9 @@ async function fetchReport(from, to) {
 }
 const addDays = (k, n) => { const d = new Date(k + "T12:00:00"); d.setDate(d.getDate() + n); return iso(d); };
 const monday = (k) => { const d = new Date(k + "T12:00:00"); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return iso(d); };
-const span = (kind, day) => kind === "week" ? [monday(day), addDays(monday(day), 6)] : [day, day];
+const monthStart = (k) => k.slice(0, 8) + "01";
+const monthEnd = (k) => { const d = new Date(k.slice(0, 7) + "-01T12:00:00"); d.setMonth(d.getMonth() + 1); d.setDate(0); return iso(d); };
+const span = (kind, day) => kind === "month" ? [monthStart(day), monthEnd(day)] : kind === "week" ? [monday(day), addDays(monday(day), 6)] : [day, day];
 const WEEK_ZH = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const hm = (ms) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const base = (p) => (p || "").split(/[\\/]/).filter(Boolean).pop() || "—";
@@ -578,7 +1006,7 @@ const modelName = (m) => { const l = bookPrice(m).label; return /est\.|Unlisted/
 const late = (ms) => { const h = new Date(ms).getHours(); return h >= 23 || h < 4; };
 function noteFacts(r, s) {
   const ss = r.sessions, toks = (b) => bagTokens(b);
-  const turns = ss.reduce((a, x) => a + x.turns, 0), tokens = toks(r.models), cost = bagCost(r.models, s);
+  const turns = ss.reduce((a, x) => a + x.turns, 0), tokens = toks(r.models), cost = bagCost(r.models, s), saved = bagSaved(r.models, s);
   const ws = {}; for (const x of ss) { const k = base(x.cwd); const w = (ws[k] ||= { name: k, tokens: 0, sessions: 0, turns: 0 }); w.tokens += toks(x.by); w.sessions++; w.turns += x.turns; }
   const wsList = Object.values(ws).sort((a, b) => b.tokens - a.tokens || b.turns - a.turns);
   const models = Object.entries(r.models).map(([m, v]) => [m, toks({ m: v })]).sort((a, b) => b[1] - a[1]);
@@ -594,7 +1022,7 @@ function noteFacts(r, s) {
   const files = new Set(); let cmds = 0, looks = 0;
   for (const x of ss) { const w = x.w || {}; for (const p of w.files || []) files.add(p); for (const [k, n] of Object.entries(w.tools || {})) { if (/^(bash|shell|run|exec|command|terminal|powershell)/i.test(k)) cmds += n; else if (/^web_/i.test(k)) looks += n; } }
   const worked = ss.filter((x) => x.w && (x.w.asks.length || x.w.outs.length)).sort((a, b) => b.turns - a.turns || toks(b.by) - toks(a.by));
-  return { sessions: ss.length, turns, tokens, cost, wsList, models, first, last, ranked, longest, dayTok, busiest, activeHours, latest, files: files.size, cmds, looks, worked };
+  return { sessions: ss.length, turns, tokens, cost, saved, wsList, models, first, last, ranked, longest, dayTok, busiest, activeHours, latest, files: files.size, cmds, looks, worked };
 }
 /* one readable line out of a chat message: drop code, tables and markdown, keep the first sentence or two */
 function headline(text, max) {
@@ -612,8 +1040,17 @@ const fileList = (files, cwd) => {
   return uniq.slice(0, 3).join("、") + (files.length > 3 ? ` 等 ${files.length} 个文件` : "");
 };
 function lede(kind, day, f) {
-  if (!f.sessions) return kind === "week" ? "这一周很安静，没有留下记录。" : "这一天很安静，没有留下记录。";
+  if (!f.sessions) return kind === "month" ? "这一月很安静，没有留下记录。" : kind === "week" ? "这一周很安静，没有留下记录。" : "这一天很安静，没有留下记录。";
   const today = iso(new Date());
+  if (kind === "month") {
+    const n = Object.values(f.dayTok).filter((v) => v > 0).length;
+    let t = `这一月有 ${n} 天在工作，开了 ${f.sessions} 个会话、聊了 ${f.turns} 轮`;
+    if (f.files) t += `，共改了 ${f.files} 个文件`;
+    if (f.busiest && n > 1) t += `；最忙的是 ${Number(f.busiest[0].slice(8))} 日`;
+    if (f.wsList[0] && f.wsList[0].name !== "—") t += `，重心落在 ${f.wsList[0].name}`;
+    t += "。";
+    return t;
+  }
   if (kind === "week") {
     const n = Object.values(f.dayTok).filter((v) => v > 0).length;
     let t = `这一周有 ${n} 天在工作，开了 ${f.sessions} 个会话、聊了 ${f.turns} 轮`;
@@ -636,6 +1073,7 @@ function lede(kind, day, f) {
 }
 function dateTitle(kind, day) {
   const d = new Date(day + "T12:00:00");
+  if (kind === "month") return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
   if (kind === "week") { const [a, b] = span("week", day), A = new Date(a + "T12:00:00"), B = new Date(b + "T12:00:00"); return `${MONTHS[A.getMonth()]} ${A.getDate()} – ${A.getMonth() === B.getMonth() ? "" : MONTHS[B.getMonth()] + " "}${B.getDate()}`; }
   return `${WEEK[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
@@ -652,6 +1090,31 @@ function WeekBars({ from, dayTok }) {
     h("span", null, h("i", { style: { height: `${dayTok[k] ? Math.max(6, (dayTok[k] / max) * 100) : 0}%` } })),
     h("small", null, WEEK_ZH[new Date(k + "T12:00:00").getDay()].slice(1)))));
 }
+function MonthBars({ from, to, dayTok }) {
+  const keys = [];
+  for (let k = from; k <= to; k = addDays(k, 1)) keys.push(k);
+  const max = Math.max(1, ...keys.map((k) => dayTok[k] || 0));
+  return h("div", { className: "ja-hours" },
+    h("div", { className: "ja-hcols", style: { gridTemplateColumns: `repeat(${keys.length}, 1fr)` } },
+      keys.map((k) => { const v = dayTok[k] || 0; return h("i", { key: k, title: `${k} · ${fmt(v)} tokens`, style: { height: `${v ? Math.max(8, (v / max) * 100) : 0}%` } }); })),
+    h("div", { className: "ja-hlab" }, ["1", "8", "15", "22", String(keys.length)].map((x) => h("span", { key: x }, x))));
+}
+function noteMarkdown(kind, day, f, s) {
+  const title = `${kind === "month" ? "Monthly" : kind === "week" ? "Weekly" : "Daily"} Note · ${dateTitle(kind, day)}`;
+  const lines = [`# ${title}`, "", `> ${lede(kind, day, f)}`, "", `- **Sessions**: ${f.sessions}  ·  **Turns**: ${f.turns}  ·  **Files**: ${f.files}  ·  **Tokens**: ${fmt(f.tokens)}  ·  **Spent**: ${money(f.cost, s)}${f.saved >= 0.01 ? ` (cache 省 ${money(f.saved, s)})` : ""}`, ""];
+  if (f.worked.length) {
+    lines.push("## What got done · 工作总结", "");
+    for (const x of f.worked.slice(0, kind === "day" ? 6 : 10)) {
+      const w = x.w, ask = w.asks[0] && headline(w.asks[0][1], 64), out = w.outs.length && headline(w.outs[w.outs.length - 1][1], 110);
+      lines.push(`1. **${x.title || "Untitled"}** (${base(x.cwd)} · ${x.turns} 轮)`);
+      if (ask) lines.push(`   - 问：${ask}`);
+      if (out) lines.push(`   - 成：${out}`);
+      if (w.files.length) lines.push(`   - 改：${fileList(w.files, x.cwd)}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
 function NoteView({ note, onClose }) {
   const st = useStore(), s = st.settings, d = derive(st.usage, s);
   const [kind, setKind] = React.useState(note.kind), [day, setDay] = React.useState(note.day);
@@ -659,18 +1122,24 @@ function NoteView({ note, onClose }) {
   const [from, to] = span(kind, day), today = iso(new Date());
   React.useEffect(() => { let on = true; setErr(""); fetchReport(from, to).then((v) => on && setRep(v), (e) => on && setErr(String(e.message || e))); return () => { on = false; }; }, [from, to]);
   React.useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); if (e.key === "ArrowLeft") step(-1); if (e.key === "ArrowRight") step(1); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); });
-  const step = (n) => { const next = addDays(day, n * (kind === "week" ? 7 : 1)); if (span(kind, next)[0] <= today) setDay(next > today ? today : next); };
+  const step = (n) => {
+    let next;
+    if (kind === "month") { const dt = new Date(day.slice(0, 7) + "-15T12:00:00"); dt.setMonth(dt.getMonth() + n); next = iso(dt); }
+    else next = addDays(day, n * (kind === "week" ? 7 : 1));
+    if (span(kind, next)[0] <= today) setDay(next > today ? today : next);
+  };
   const ready = rep && rep.from === from && rep.to === to, f = ready ? noteFacts(rep, s) : null;
-  const no = Math.max(1, d.first ? Math.floor((new Date(from) - new Date(d.first)) / (kind === "week" ? 6048e5 : 864e5)) + 1 : 1);
+  const no = Math.max(1, d.first ? Math.floor((new Date(from) - new Date(d.first)) / (kind === "month" ? 2592e6 : kind === "week" ? 6048e5 : 864e5)) + 1 : 1);
   const fig = (label, val, unit) => h("div", { key: label }, h("small", { className: "ja-caps" }, label), h("b", null, val, unit ? h("u", null, unit) : null));
   const [tk, tu] = split(f ? f.tokens : 0);
+  const noteName = kind === "month" ? `The Monthly Note · No. ${no}` : kind === "week" ? `The Weekly Note · No. ${no}` : `The Daily Note · No. ${no}`;
   return portal(h("div", { className: "ja-root ja-note-bg", onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
-    h("article", { className: "ja-note", role: "dialog", "aria-label": kind === "week" ? "Weekly note" : "Daily note" },
+    h("article", { className: "ja-note", role: "dialog", "aria-label": noteName },
       h("button", { type: "button", className: "ja-x", "aria-label": "关闭", onClick: onClose }, "×"),
       h("header", { className: "ja-mast" },
         h("div", { className: "ja-mrow" },
-          h("span", { className: "ja-caps" }, kind === "week" ? `The Weekly Note · No. ${no}` : `The Daily Note · No. ${no}`),
-          h("div", { className: "ja-seg" }, [["day", "日报"], ["week", "周报"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": kind === k, onClick: () => setKind(k) }, l)))),
+          h("span", { className: "ja-caps" }, noteName),
+          h("div", { className: "ja-seg" }, [["day", "日报"], ["week", "周报"], ["month", "月报"]].map(([k, l]) => h("button", { key: k, type: "button", "aria-pressed": kind === k, onClick: () => setKind(k) }, l)))),
         h("div", { className: "ja-mtitle" },
           h("button", { type: "button", className: "ja-nav", "aria-label": "上一个", onClick: () => step(-1) }, "‹"),
           h("h2", null, dateTitle(kind, day)),
@@ -682,29 +1151,40 @@ function NoteView({ note, onClose }) {
           h("div", { className: "ja-figs" },
             fig("Sessions", f.sessions), fig("Turns", f.turns), fig("Files", f.files), fig("Tokens", tk, tu), fig("Spent", money(f.cost, s))),
           h("p", { className: "ja-facts" }, [
-            f.first ? `${kind === "week" ? WEEK_ZH[new Date(f.first).getDay()] + " " : ""}${hm(f.first)} 动笔` : "",
-            f.last ? `${kind === "week" ? WEEK_ZH[new Date(f.last).getDay()] + " " : ""}${hm(f.last)} 收笔` : "",
+            f.first ? `${kind !== "day" ? WEEK_ZH[new Date(f.first).getDay()] + " " : ""}${hm(f.first)} 动笔` : "",
+            f.last ? `${kind !== "day" ? WEEK_ZH[new Date(f.last).getDay()] + " " : ""}${hm(f.last)} 收笔` : "",
             f.cmds ? `${f.cmds} 条命令` : "", f.looks ? `查了 ${f.looks} 次资料` : "",
+            f.saved >= 0.01 ? `缓存省下 ${money(f.saved, s)}` : "",
             d.streak > 1 ? `至今连续 ${d.streak} 天` : ""].filter(Boolean).join("  ·  ")),
           f.worked.length ? h("section", null, h("h6", { className: "ja-caps" }, "What got done · 工作总结"),
-            h("ol", { className: "ja-done" }, f.worked.slice(0, kind === "week" ? 8 : 6).map((x) => {
+            h("ol", { className: "ja-done" }, f.worked.slice(0, kind !== "day" ? 8 : 6).map((x) => {
               const w = x.w, ask = w.asks[0] && headline(w.asks[0][1], 56), out = w.outs.length && headline(w.outs[w.outs.length - 1][1], 96);
               const tn = Object.entries(w.tools || {}).reduce((a, [k, n]) => a + (/^(bash|shell|run|exec|command|terminal|powershell)/i.test(k) ? n : 0), 0);
-              const span = x.first ? (iso(new Date(x.first)) !== iso(new Date(x.last)) ? `${WEEK_ZH[new Date(x.first).getDay()]} ${hm(x.first)}–${WEEK_ZH[new Date(x.last).getDay()]} ${hm(x.last)}` : `${hm(x.first)}–${hm(x.last)}`) : "";
+              const sp = x.first ? (iso(new Date(x.first)) !== iso(new Date(x.last)) ? `${WEEK_ZH[new Date(x.first).getDay()]} ${hm(x.first)}–${WEEK_ZH[new Date(x.last).getDay()]} ${hm(x.last)}` : `${hm(x.first)}–${hm(x.last)}`) : "";
               return h("li", { key: x.id },
-                h("div", { className: "ja-dh" }, h("b", null, x.title || "Untitled"), h("small", null, [base(x.cwd), span, `${x.turns} 轮`].filter(Boolean).join(" · "))),
+                h("div", { className: "ja-dh" },
+                  h("b", {
+                    style: { cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--ja-line2, rgba(164,134,89,.35))", textUnderlineOffset: "3px" },
+                    title: "点击跳转到此会话",
+                    onClick: () => { if (selectDesktopSession(x.id, x.title)) onClose(); else toast("请在侧栏展开会话列表后切换"); },
+                  }, x.title || "Untitled"),
+                  h("small", null, [base(x.cwd), sp, `${x.turns} 轮`].filter(Boolean).join(" · "))),
                 ask ? h("p", null, h("i", null, "问"), ask) : null,
                 out ? h("p", null, h("i", null, "成"), out) : null,
                 w.files.length || tn ? h("p", { className: "ja-dim" }, h("i", null, "改"), [w.files.length ? fileList(w.files, x.cwd) : "", tn ? `${tn} 条命令` : ""].filter(Boolean).join(" · ")) : null);
             }))) : null,
           h("div", { className: "ja-cols" },
-            h("section", null, h("h6", { className: "ja-caps" }, kind === "week" ? "Day by day" : "Hour by hour"),
-              kind === "week" ? h(WeekBars, { from, dayTok: f.dayTok }) : h(HourStrip, { hours: rep.hours })),
+            h("section", null, h("h6", { className: "ja-caps" }, kind !== "day" ? "Day by day" : "Hour by hour"),
+              kind === "month" ? h(MonthBars, { from, to, dayTok: f.dayTok }) : kind === "week" ? h(WeekBars, { from, dayTok: f.dayTok }) : h(HourStrip, { hours: rep.hours })),
             h("section", null, h("h6", { className: "ja-caps" }, "Where & with whom"),
               h("ul", { className: "ja-ws" },
                 f.wsList.slice(0, 3).map((w) => h("li", { key: "w" + w.name }, h("span", null, w.name), h(HatchBar, { v: w.tokens, max: f.wsList[0].tokens }), h("small", null, `${w.sessions} 会话`))),
                 f.models.slice(0, 3).map(([m, v]) => h("li", { key: "m" + m, className: "ja-mod" }, h("span", { title: m }, modelName(m)), h(HatchBar, { v, max: f.models[0][1] }), h("small", null, Math.round((v / (f.tokens || 1)) * 100) + "%"))))))) : null),
-      h("footer", { className: "ja-nfoot" }, h("span", null, "Composed locally from your session logs"), h("span", null, "← → 翻页 · Esc 关闭")))));
+      h("footer", { className: "ja-nfoot" },
+        h("span", null, "Composed locally from your session logs"),
+        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+          f ? h("button", { type: "button", className: "ja-foot-link", onClick: () => copyText(noteMarkdown(kind, day, f, s), "已拓印小记（Markdown 已复制）") }, "拓印 · Copy MD") : null,
+          h("span", null, "← → 翻页 · Esc 关闭"))))));
 }
 const noteSeenKey = (n) => `ja-note-seen:${n.kind}:${n.day}`;
 function pendingNote(d) {
@@ -734,14 +1214,38 @@ function NoteCard({ d, s, onOpen }) {
     h("button", { type: "button", className: "ja-x", "aria-label": "收起", title: "收起这一期", onClick: dismiss }, "×"));
 }
 
-/* ---------------- time of day & small occasions ---------------- */
+/* ---------------- time of day, 24 solar terms & small occasions ---------------- */
 function phaseOf(hr) { return hr >= 5 && hr < 8 ? "dawn" : hr >= 8 && hr < 17 ? "day" : hr >= 17 && hr < 20 ? "dusk" : "night"; }
+const SOLAR_TERMS = [
+  ["Minor Cold", "小寒 · 梅花信风", "snow"], ["Major Cold", "大寒 · 岁末围炉", "snow"],
+  ["Start of Spring", "立春 · 春风解冻"], ["Rain Water", "雨水 · 润物无声"],
+  ["Awakening of Insects", "惊蛰 · 春雷初动"], ["Vernal Equinox", "春分 · 昼夜均平"],
+  ["Clear and Bright", "清明 · 气清景明"], ["Grain Rain", "谷雨 · 雨生百谷"],
+  ["Start of Summer", "立夏 · 万物繁茂"], ["Grain Buds", "小满 · 小得盈满"],
+  ["Grain in Ear", "芒种 · 忙有所得"], ["Summer Solstice", "夏至 · 日长至极"],
+  ["Minor Heat", "小暑 · 荷风送香"], ["Major Heat", "大暑 · 萤火流光"],
+  ["Start of Autumn", "立秋 · 一叶知秋"], ["End of Heat", "处暑 · 天高云淡"],
+  ["White Dew", "白露 · 蒹葭苍苍"], ["Autumn Equinox", "秋分 · 秋水长天"],
+  ["Cold Dew", "寒露 · 露冷秋深"], ["Frost's Descent", "霜降 · 枫林尽染"],
+  ["Start of Winter", "立冬 · 万物收藏"], ["Minor Snow", "小雪 · 晚来天欲雪", "snow"],
+  ["Major Snow", "大雪 · 独钓寒江雪", "snow"], ["Winter Solstice", "冬至 · 一阳来复", "snow"],
+];
+const C21 = [5.4055, 20.12, 3.87, 18.73, 5.63, 20.646, 4.81, 20.1, 5.52, 21.04, 5.678, 21.37, 7.108, 22.83, 7.5, 23.13, 7.646, 23.042, 8.318, 23.438, 7.438, 22.36, 7.18, 21.94];
+function solarTerm(now) {
+  const y = now.getFullYear() % 100, m = now.getMonth(), d = now.getDate();
+  for (let k = 0; k < 2; k++) {
+    const idx = m * 2 + k;
+    const td = Math.floor(y * 0.2422 + C21[idx]) - Math.floor((idx < 2 ? y - 1 : y) / 4);
+    if (d === td) return SOLAR_TERMS[idx];
+  }
+  return null;
+}
 const OCCASIONS = {
-  "01-01": ["Happy New Year", "新年快乐"], "12-25": ["Merry Christmas", "圣诞快乐"], "12-31": ["Last page of the year", "一年的最后一页"],
+  "01-01": ["Happy New Year", "新年快乐"], "12-25": ["Merry Christmas", "圣诞快乐", "snow"], "12-31": ["Last page of the year", "一年的最后一页"],
   "2026-09-25": ["Happy Mid-Autumn", "月圆人团圆", "moon"], "2027-09-15": ["Happy Mid-Autumn", "月圆人团圆", "moon"], "2028-10-03": ["Happy Mid-Autumn", "月圆人团圆", "moon"],
   "2027-02-06": ["Happy Spring Festival", "新春快乐"], "2028-01-26": ["Happy Spring Festival", "新春快乐"], "2029-02-13": ["Happy Spring Festival", "新春快乐"],
 };
-function occasion(now) { const k = iso(now); return OCCASIONS[k] || OCCASIONS[k.slice(5)] || null; }
+function occasion(now) { const k = iso(now); return OCCASIONS[k] || OCCASIONS[k.slice(5)] || solarTerm(now) || null; }
 
 /* ---------------- class-hash remapping ----------------
  * The skin targets CSS-module classes like "pXSMma_headline". Module hashes differ
@@ -845,9 +1349,11 @@ function syncIcons(on) {
   }
 }
 
-/* ---------------- second palette: 墨与青 (ink & celadon) ----------------
- * Derived from the paper-and-gold palette: warm neutrals become cool rice paper,
- * gold becomes celadon teal. State colours (error / warn / success / diff) stay put. */
+/* ---------------- palettes: 纸与金 / 墨与青 / 楮与朱 ----------------
+ * Derived from the paper-and-gold palette:
+ * - ink (墨与青): warm neutrals become cool rice paper, gold becomes celadon teal.
+ * - cinnabar (楮与朱): warm mulberry paper with traditional seal-paste vermilion.
+ * State colours (error / warn / success / diff) stay put. */
 function inkColor(r, g, b) {
   const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = (mx - mn) / 255, l = (mx + mn) / 510;
   let hue = 0;
@@ -861,6 +1367,19 @@ function inkColor(r, g, b) {
   const f = (n) => Math.round(255 * (nl - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
   return [f(0), f(8), f(4)];
 }
+function cinnabarColor(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), c = (mx - mn) / 255, l = (mx + mn) / 510;
+  let hue = 0;
+  if (mx !== mn) { const d = mx - mn; hue = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; hue = (hue * 60 + 360) % 360; }
+  if (hue < 12 || hue > 72) return [r, g, b];
+  const s = c === 0 ? 0 : c / (1 - Math.abs(2 * l - 1));
+  let nh, ns, nl = l;
+  if (c > 0.16) { nh = 11; ns = Math.min(0.58, s * 1.35); nl = l > 0.55 ? l * 0.96 : l * 0.88; }
+  else { nh = 26; ns = s * 0.85; }
+  const k = (n) => (n + nh / 30) % 12, a = ns * Math.min(nl, 1 - nl);
+  const f = (n) => Math.round(255 * (nl - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  return [f(0), f(8), f(4)];
+}
 const hex2 = (n) => n.toString(16).padStart(2, "0").toUpperCase();
 function inkify(text) {
   return String(text)
@@ -870,12 +1389,25 @@ function inkify(text) {
     .replace(".35  0 0 0 0 .27  0 0 0 0 .16", ".18  0 0 0 0 .26  0 0 0 0 .30")
     .replace(".95  0 0 0 0 .88  0 0 0 0 .72", ".78  0 0 0 0 .90  0 0 0 0 .92");
 }
+function cinnabarify(text) {
+  return String(text)
+    .replace(/#([0-9a-fA-F]{6})\b/g, (all, hx) => { const v = parseInt(hx, 16); const [r, g, b] = cinnabarColor(v >> 16, (v >> 8) & 255, v & 255); return "#" + hex2(r) + hex2(g) + hex2(b); })
+    .replace(/rgba?\((\d+),\s*(\d+),\s*(\d+)/g, (all, r, g, b) => { const o = cinnabarColor(+r, +g, +b); return (all.startsWith("rgba") ? "rgba(" : "rgb(") + o.join(","); })
+    .replace(/(--w-[a-z]+:)(\d+),(\d+),(\d+)/g, (all, k, r, g, b) => k + cinnabarColor(+r, +g, +b).join(","))
+    .replace(".35  0 0 0 0 .27  0 0 0 0 .16", ".38  0 0 0 0 .18  0 0 0 0 .14")
+    .replace(".95  0 0 0 0 .88  0 0 0 0 .72", ".96  0 0 0 0 .78  0 0 0 0 .72");
+}
 const INK_TOKENS = Object.fromEntries(Object.entries(TOKENS).map(([k, v]) => [k, /warn|error|success|diff|danger/.test(k) ? v : { light: inkify(v.light), dark: inkify(v.dark) }]));
-const PALETTES = { atelier: { label: "纸与金", tokens: TOKENS, skin: SKIN_CSS, parts: PARTS_CSS }, ink: { label: "墨与青", tokens: INK_TOKENS, skin: inkify(SKIN_CSS), parts: inkify(PARTS_CSS) } };
+const CINNABAR_TOKENS = Object.fromEntries(Object.entries(TOKENS).map(([k, v]) => [k, /warn|error|success|diff|danger/.test(k) ? v : { light: cinnabarify(v.light), dark: cinnabarify(v.dark) }]));
+const PALETTES = {
+  atelier: { label: "纸与金", tokens: TOKENS, skin: SKIN_CSS, parts: PARTS_CSS },
+  ink: { label: "墨与青", tokens: INK_TOKENS, skin: inkify(SKIN_CSS), parts: inkify(PARTS_CSS) },
+  cinnabar: { label: "楮与朱", tokens: CINNABAR_TOKENS, skin: cinnabarify(SKIN_CSS), parts: cinnabarify(PARTS_CSS) },
+};
 let CTX = null, palKey = null, palOff = null;
 function syncPalette() {
   if (!CTX) return;
-  const k = store.settings.palette === "ink" ? "ink" : "atelier";
+  const k = store.settings.palette === "ink" ? "ink" : store.settings.palette === "cinnabar" ? "cinnabar" : "atelier";
   if (k === palKey) return;
   const p = PALETTES[k];
   if (palOff) palOff.all();
@@ -884,17 +1416,17 @@ function syncPalette() {
   try { t = CTX.theme.overrideTokens(name, p.tokens) || (() => {}); } catch (e) { console.error("jules-atelier: palette", e); }
   palKey = k; palOff = { all: () => { b(); c(); t(); } };
   document.body.classList.toggle("ja-pal-ink", k === "ink");
+  document.body.classList.toggle("ja-pal-cinnabar", k === "cinnabar");
   syncBotTheme();
 }
-function dropPalette() { if (palOff) palOff.all(); palOff = null; palKey = null; document.body && document.body.classList.remove("ja-pal-ink"); }
+function dropPalette() { if (palOff) palOff.all(); palOff = null; palKey = null; document.body && document.body.classList.remove("ja-pal-ink", "ja-pal-cinnabar"); }
 
 /* ---------------- conversation sea ----------------
  * A quiet engraved seascape behind the conversation: a low horizon, a setting sun
- * drawn in horizontal hatching (stars only at night), a few drawn-out clouds and
- * swells set as fine strokes that grow denser towards the viewer, with a single
- * gold reflection path. One ink, one accent. While a turn runs the water moves a
- * little quicker. The scene falls away behind the text column. ~12 fps, paused
- * when hidden, a still frame under reduced motion. */
+ * or engraved crescent moon drawn in horizontal hatching, gliding gulls by day,
+ * stars by night, occasional distant whale silhouette on the horizon, and winter snow.
+ * While a turn runs the water moves a little quicker. The scene falls away behind
+ * the text column. ~12 fps, paused when hidden, a still frame under reduced motion. */
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 function mountSea(host, colSel) {
   const cv = document.createElement("canvas"); cv.className = "ja-sea"; cv.setAttribute("aria-hidden", "true");
@@ -918,16 +1450,12 @@ function mountSea(host, colSel) {
     cols = Math.ceil(W / CW) + 1; rows = Math.ceil(H / CH) + 1; measureCol();
     const hz = Math.round(rows * 0.6); stars = [];
     for (let y = 2; y < hz - 3; y++) for (let x = 0; x < cols; x++) { const r = hash(x, y, 7); if (r < 0.0045 * (1 - y / hz * 0.6)) stars.push([x, y, hash(x, y, 9) * 6.28, hash(x, y, 11)]); }
-    gulls = [0, 1].map((i) => ({ x: hash(i, 3, 5) * cols, y: hz * (0.3 + 0.25 * hash(i, 4, 5)), v: 0.35 + hash(i, 6, 5) * 0.25, ph: hash(i, 8, 5) * 6 }));
+    gulls = [0, 1, 2].map((i) => ({ x: hash(i, 3, 5) * cols, y: hz * (0.22 + 0.28 * hash(i, 4, 5)), v: 0.35 + hash(i, 6, 5) * 0.25, ph: hash(i, 8, 5) * 6 }));
   }
-  // Dense engraving, as in the home whale: every cell carries a glyph from the same
-  // ramp, tone comes from a lit height field. Buckets: [ink|gold] x NL alpha levels
-  // (the levels only soften the scene behind the text column).
   const NL = 6, RB = " .,:;-=+*#%@", SKY = " .,-=+"; let bk = [];
   const put = (g, x, y, ch, c) => { if (ch === " ") return; const k = (g ? NL : 0) + c; (bk[k] ||= []).push(x * CW, y * CH, ch); };
   const colLv = new Uint8Array(4096);
   function levels() { for (let x = 0; x < cols && x < 4096; x++) { if (colL < 0) { colLv[x] = 0; continue; } const d = Math.min(x - colL, colR - x); colLv[x] = Math.round((NL - 1) * sm(-14, 6, d)); } }
-  const tang = (a) => { const c = Math.abs(Math.cos(a)), s2 = Math.abs(Math.sin(a)); return c > 0.92 ? "|" : s2 > 0.92 ? "-" : Math.cos(a) * Math.sin(a) > 0 ? "/" : "\\"; };
   const fr = (v) => v - Math.floor(v);
   const vn = (x, k) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return hash(i, 0, k) * (1 - u) + hash(i + 1, 0, k) * u; };
   const ridge = (x) => { const a = vn(x * 0.09, 21), b = vn(x * 0.23, 22), c = vn(x * 0.61, 23); return a * 0.6 + b * 0.3 + c * 0.1; };
@@ -940,6 +1468,8 @@ function mountSea(host, colSel) {
     const mx = Math.round(colR > 0 ? colR + mg * 0.5 : cols * 0.82);
     const Rx = Math.max(7, Math.min(mg * 0.36, cols * 0.08)), Rr = Rx * CW / CH, my = Math.round(hz - Rr * 0.55);
     const tick = Math.floor(t * 2);
+    const occ = occasion(new Date()), fullMoon = !!(occ && occ[2] === "moon");
+    const snowOn = (() => { try { if (localStorage.getItem("ja-phase") === "snow") return true; } catch {} return !!(occ && occ[2] === "snow"); })();
     // headland on the left margin: an engraved silhouette sloping into the sea
     const land = new Float32Array(cols), lw = Math.max(18, ml + 16);
     for (let x = 0; x < cols; x++) { const e = 1 - sm(lw * 0.45, lw, x); land[x] = e > 0 ? (rows * 0.13 * (0.4 + 0.8 * ridge(x)) + rows * 0.07 * (1 - x / lw)) * e : 0; }
@@ -954,9 +1484,19 @@ function mountSea(host, colSel) {
           const ch = y - top < 1 ? (sl > 0.25 ? "/" : sl < -0.25 ? "\\" : "_") : RB[Math.max(2, Math.min(RB.length - 1, Math.round(v * (RB.length - 1) + (hash(x, y, 4) - 0.5) * 1.5)))];
           put(false, x, y, ch, c); continue;
         }
-        if (dark) { const r = hash(x, y, 7); if (r < 0.007 * (1 - yn * 0.7)) { const tw = 0.5 + 0.5 * Math.sin(t * (0.6 + r * 90) + r * 999); put(tw > 0.8, x, y, tw > 0.92 ? "+" : tw > 0.45 ? "*" : ".", c); continue; } }
+        const dx = (x - mx) / Rx, dy = (y - my) / Rr, d = Math.hypot(dx, dy);
+        if (dark) {
+          if (d < 1.15) { // engraved crescent or Mid-Autumn full moon in night sky
+            const cutD = Math.hypot(dx + 0.38, dy + 0.18);
+            if (d < 0.92 && (fullMoon || cutD > 0.78)) {
+              const v = Math.pow(Math.max(0, 1 - d * d), 0.45);
+              put(true, x, y, " .-=+*#"[Math.max(1, Math.min(6, Math.round(1 + v * 5)))], c); continue;
+            }
+          }
+          const r = hash(x, y, 7);
+          if (r < 0.007 * (1 - yn * 0.7)) { const tw = 0.5 + 0.5 * Math.sin(t * (0.6 + r * 90) + r * 999); put(tw > 0.8, x, y, tw > 0.92 ? "+" : tw > 0.45 ? "*" : ".", c); continue; }
+        }
         if (!dark) {
-          const dx = (x - mx) / Rx, dy = (y - my) / Rr, d = Math.hypot(dx, dy);
           if (d < 1.55) { // the sun: a dense engraved disc, cut by thinning bands toward the horizon, with a dotted halo
             const b = (y - (my - Rr)) / (2 * Rr);
             if (d < 1) {
@@ -974,11 +1514,49 @@ function mountSea(host, colSel) {
           const u = fr(x / cols - cx0 + t * sp), shape = vn(u * 9, 31 + cy * 10) * 1.6 - 0.45 - ry * ry * 0.35;
           if (shape > 0) tone += Math.min(1, shape) * (ry < 0 ? 0.55 : 0.95);
         }
-        if (!dark) { const d = Math.hypot((x - mx) / Rx, (y - my) / Rr); tone *= sm(1.1, 2.2, d) * 0.85 + 0.15; } else tone *= 0.75;
+        if (!dark) tone *= sm(1.1, 2.2, d) * 0.85 + 0.15; else tone *= 0.75;
         if (tone < 0.06) continue;
         const hatch = (y % 2 === 0) ? 1 : 0.35;
         const k = Math.floor(tone * hatch * 7 + hash(x, y, 3) * 0.8);
         if (k > 0) put(false, x, y, " .-~=+*"[Math.min(6, k)], c);
+      }
+    }
+    // Daytime gliding seagulls
+    if (!dark) {
+      for (const g of gulls) {
+        const gx = Math.round((g.x + t * g.v * 2.2) % cols);
+        const gy = Math.round(g.y + Math.sin(t * 1.1 + g.ph) * 1.5);
+        if (gy > 2 && gy < hz - 4 && land[gx] < 1) {
+          const flap = Math.sin(t * 3.4 + g.ph);
+          const wing = flap > 0.35 ? "^" : flap < -0.35 ? "v" : "~";
+          const c = colLv[gx];
+          put(false, Math.max(0, gx - 1), gy, wing, c);
+          put(false, gx, gy, flap > 0 ? "." : "_", c);
+          put(false, Math.min(cols - 1, gx + 1), gy, wing, c);
+        }
+      }
+    }
+    // Winter snow drifting across the sky
+    if (snowOn) {
+      for (let i = 0; i < 36; i++) {
+        const sx = Math.round((hash(i, 1, 71) * cols + t * (1.2 + hash(i, 2, 71)) + Math.sin(t * 0.8 + i) * 2 + cols * 10) % cols);
+        const sy = Math.round((hash(i, 3, 71) * hz + t * (1.8 + hash(i, 4, 71) * 1.6)) % Math.max(1, hz - 1));
+        if (sy > 1 && sy < hz - land[sx]) put(i % 4 === 0, sx, sy, i % 3 === 0 ? "*" : ".", colLv[sx]);
+      }
+    }
+    // Occasional distant whale gliding along the horizon with a tiny mist spout
+    const wCycle = (t * (busy ? 0.045 : 0.024)) % 1;
+    if (wCycle < 0.55) {
+      const wx = Math.round(lw + 6 + (wCycle / 0.55) * Math.max(20, cols - lw - 16));
+      const back = "_.-~~-._,";
+      for (let i = 0; i < back.length; i++) {
+        const x = wx + i;
+        if (x >= 0 && x < cols && land[x] < 0.5) put(false, x, hz - 1, back[i], colLv[x]);
+      }
+      if (Math.sin(t * 1.8) > 0.1 && wx + 3 < cols) {
+        put(true, wx + 3, hz - 2, ":", colLv[wx + 3]);
+        put(true, wx + 2, hz - 3, ".", colLv[wx + 2]);
+        put(true, wx + 4, hz - 3, ".", colLv[wx + 4]);
       }
     }
     for (let x = 0; x < cols; x++) if (land[x] < 0.5) put(false, x, hz, hash(x, 0, tick) < 0.85 ? "_" : " ", colLv[x]);
@@ -1045,22 +1623,25 @@ function stopSea() { if (seaMo) seaMo.disconnect(); seaMo = null; clearTimeout(s
 
 /* ---------------- DS Bot themes ----------------
  * DS Bot (ds-bot) paints the whole window from its own theme. Instead of fighting
- * it, offer it two themes through its public hub (window.dshBotQueue): Atelier's
- * paper & gold and ink & celadon. They show up in DS Bot → 通用 → 主题. */
+ * it, offer it Atelier's theme through its public hub (window.dshBotQueue).
+ * It shows up in DS Bot → 通用 → 主题. */
 const BOT_CSS = __BOTCSS__;
 const BOT_BASE = {
   light: { bg: "#FAF8F3", sidebar: "#F1ECE1", bubble: "#F3EEE4", card: "#FFFDF8", text: "#2E2A24", user: "#2E2A24", userText: "#FAF8F3", accent: "#A48659" },
   dark: { bg: "#22211E", sidebar: "#262420", bubble: "#2B2925", card: "#282622", text: "#ECE5D6", user: "#ECE5D6", userText: "#22211E", accent: "#C3A574" } };
 const inkMode = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, inkify(v)]));
-/* One DS Bot theme, "atelier", that always follows the Atelier palette (纸与金 / 墨与青). */
+const cinnabarMode = (m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, cinnabarify(v)]));
+/* One DS Bot theme, "atelier", that always follows the Atelier palette (纸与金 / 墨与青 / 楮与朱). */
 let botHub = null, botOff = null, botKey = null;
 function botTheme() {
-  const ink = store.settings.palette === "ink";
-  return { label: "Atelier", light: ink ? inkMode(BOT_BASE.light) : BOT_BASE.light, dark: ink ? inkMode(BOT_BASE.dark) : BOT_BASE.dark, css: ink ? inkify(BOT_CSS) : BOT_CSS };
+  const p = store.settings.palette;
+  if (p === "ink") return { label: "Atelier", light: inkMode(BOT_BASE.light), dark: inkMode(BOT_BASE.dark), css: inkify(BOT_CSS) };
+  if (p === "cinnabar") return { label: "Atelier", light: cinnabarMode(BOT_BASE.light), dark: cinnabarMode(BOT_BASE.dark), css: cinnabarify(BOT_CSS) };
+  return { label: "Atelier", light: BOT_BASE.light, dark: BOT_BASE.dark, css: BOT_CSS };
 }
 function syncBotTheme() {
   if (!botHub) return;
-  const k = store.settings.palette === "ink" ? "ink" : "atelier";
+  const k = store.settings.palette === "ink" ? "ink" : store.settings.palette === "cinnabar" ? "cinnabar" : "atelier";
   if (k === botKey) return;
   try { const off = botHub.registerTheme("atelier", botTheme()); if (!botOff) botOff = off; botKey = k; } catch (e) { console.warn("jules-atelier: ds-bot theme", e); }
 }
@@ -1128,9 +1709,9 @@ function addStyle(id, text) {
 function apply(ctx) {
   ctx.effect(() => {
     CTX = ctx; const a = addStyle("ja-fonts", FONT_CSS);
-    syncPalette(); applyBodyFlags(); loadSettings(); startSea(); const bt = registerBotThemes();
+    syncPalette(); applyBodyFlags(); loadSettings(); startSea(); startBridge(); const bt = registerBotThemes();
     const nt = setTimeout(() => updNotice().catch(() => {}), 4000);
-    return () => { clearTimeout(nt); bt(); a(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
+    return () => { clearTimeout(nt); bt(); a(); stopBridge(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink", "ja-pal-cinnabar"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
   }, "jules-atelier: styles");
   const reg = (slot, opts, comp) => ctx.slots.inject(slot, () => ctx.slots.register({ name: slot, ...opts }, comp));
   reg("conversation.hero.brand.mark", { priority: -10 }, HeroMark);
