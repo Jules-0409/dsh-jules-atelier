@@ -353,7 +353,7 @@ function copyText(text, msg) {
     toast(msg || "已复制到剪贴板");
   } catch {}
 }
-function PocketCard() {
+function useRemoteInfo() {
   const [, force] = React.useReducer((x) => x + 1, 0);
   React.useEffect(() => {
     subs.add(force);
@@ -361,59 +361,108 @@ function PocketCard() {
     const iv = setInterval(() => { if (!document.hidden) remApi().catch(() => {}); }, 5000);
     return () => { subs.delete(force); clearInterval(iv); };
   }, []);
+  return rem;
+}
+function PocketSection({ s }) {
+  useRemoteInfo();
   const i = rem.info;
   const urls = (i && i.urls && i.urls.length ? i.urls : i && i.primaryUrl ? [i.primaryUrl] : i && i.localUrl ? [i.localUrl] : []);
   const primary = urls[0] || "";
   const clientCount = Array.isArray(i && i.clients) ? i.clients.length : (i && +i.clients) || 0;
-  return h("div", { className: "ja-qr-card" },
-    h("div", { className: "ja-qr-col" },
-      h("div", { className: "ja-qr-box" },
-        primary && i && i.listening ? h(QrSvg, { text: primary, size: 132 }) : h("div", { style: { width: 132, height: 132, display: "grid", placeItems: "center", fontSize: 11, color: "var(--dsw-alias-label-tertiary)" } }, i && !i.enabled ? "已关闭" : "正在启动…")),
-      h("span", { className: "ja-caps" }, "Scan with phone")),
-    h("div", { className: "ja-qr-meta" },
-      h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
-        h("h5", null, "Pocket Atelier · 掌中工坊"),
-        i ? h(Sw, { on: !!i.enabled, onChange: (v) => remAct({ enabled: v }), label: "Enable Pocket Atelier" }) : null),
-      h("p", null, rem.err
-        ? (/404/.test(rem.err)
-          ? "后台服务尚未加载新版本路由。请按 Cmd+Q 完全退出并重新打开 DeepSeek Harness 即可启用掌中工坊。"
-          : "出错了：" + rem.err)
-        : i && !i.enabled ? "局域网遥控服务已关闭。开启后，同一 Wi-Fi 下的手机扫码即可远程对话、审批工具、切换会话与遥控主题。"
-        : i && !(i.urls && i.urls.length) ? "当前未检测到局域网 IP（仅本机可访问）。请确认电脑已连接 Wi-Fi 或局域网。"
-        : "手机与电脑连接同一 Wi-Fi，用相机或浏览器扫左侧二维码即可进入掌中工坊（自带一次性鉴权，无需装 App）。"),
-      i && i.enabled ? h("div", { className: "ja-pin-row" },
-        h("span", { className: "ja-caps" }, "PIN"),
-        h("span", { className: "ja-pin", title: "点击复制 PIN", style: { cursor: "pointer" }, onClick: () => copyText(i.pin, "已复制 PIN · " + i.pin) }, i.pin || "------"),
-        h("button", { type: "button", className: "ja-btn", disabled: rem.busy, onClick: () => remAct({ resetPin: true }) }, "重置 PIN"),
-        h("span", { className: "ja-caps", style: { marginLeft: "auto", color: clientCount > 0 ? "var(--ja-gold)" : undefined } },
-          clientCount > 0 ? `● ${clientCount} 台设备已连接` : "等待手机扫码")) : null,
-      i && i.enabled && urls.length ? h("div", { className: "ja-url-list" },
-        urls.map((u) => h("button", { key: u, type: "button", className: "ja-url-pill", title: "点击复制完整带 PIN 链接", onClick: () => copyText(u, "已复制遥控链接") },
-          h("span", null, u.replace(/\?(k|pin)=.*$/, "")),
-          h("b", null, "复制链接")))) : null));
-}
-function PocketSection({ s }) {
-  const i = rem.info;
   return h(React.Fragment, null,
-    h(Sec, { no: "V", en: "Pocket Atelier", zh: "移动端遥控" }),
-    h(PocketCard, { s }),
-    h(Opt, { title: "LAN port · 监听端口", desc: "默认 7788（若被占用会自动顺延）；可填入 1024–65535 之间的端口号方便手机存书签。" },
-      h(NumIn, { value: (i && i.port) || s.remotePort || 7788, width: 78, onCommit: (n) => remAct({ port: Math.round(n) }) })));
+    h(Sec, { no: "V", en: "Parallel & Pocket", zh: "多卷同览与掌中遥控" }),
+    h(Opt, {
+      title: "Parallel Folios · 多卷同览",
+      desc: "在同一桌面窗口并排开启 2–4 个不同项目或会话（双卷 1×2 / 三卷 1×3 / 四卷 2×2），各卷独立流式对话、审批工具，点选左侧栏会话即自动投送至当前焦点卷。",
+    }, h("button", { type: "button", className: "ja-btn", onClick: () => { openModal(null); openSplitView(); } }, "展卷分屏 ›")),
+    h(Opt, {
+      title: "Pocket Atelier · 局域网掌中工坊",
+      desc: rem.err
+        ? (/404/.test(rem.err)
+          ? "后台服务尚未加载新路由，请按 Cmd+Q 完全退出并重新打开应用即可启用。"
+          : "状态：" + rem.err)
+        : i && i.enabled
+          ? (clientCount > 0
+            ? `正在监听 :${i.port} · 配对码 ${i.pin} · 已连接 ${clientCount} 台手机或平板`
+            : `正在监听 :${i.port} · 配对码 ${i.pin} · 同一 Wi-Fi 下手机扫码直连，无需安装 App`)
+          : "已关闭。开启后，同一 Wi-Fi 下的手机扫码即可远程对话、多项目巡检、切换分屏与遥控铜版主题。",
+    }, h(Sw, { on: !!(i ? i.enabled : s.remote !== false), onChange: (v) => remAct({ enabled: v }), label: "Enable Pocket Atelier" })),
+    h(Opt, {
+      title: "Ex Libris · 配对藏书票",
+      desc: primary
+        ? `局域网直连 ${primary.replace(/\?(k|pin)=.*$/, "")} · 附一次性 6 位 PIN 密钥，点击可展开铜版藏书票二维码或更换新码。`
+        : "展开铜版藏书票二维码（Ex Libris）供手机相机扫码，或更换 6 位配对码。",
+    }, h("div", { style: { display: "flex", alignItems: "center", gap: 8, flex: "none" } },
+      i && i.enabled ? h("button", { type: "button", className: "ja-btn", disabled: rem.busy, onClick: () => remAct({ resetPin: true }) }, "换新码") : null,
+      h("button", { type: "button", className: "ja-btn ja-btn-ink", onClick: () => openModal({ type: "pocket" }) }, "藏书票扫码 ›"))),
+    h(Opt, {
+      title: "LAN port · 监听端口",
+      desc: "默认 7788（若被占用会自动顺延）；可填入 1024–65535 之间的固定端口号方便手机存主屏幕书签。",
+    }, h(NumIn, { value: (i && i.port) || s.remotePort || 7788, width: 78, onCommit: (n) => remAct({ port: Math.round(n) }) })));
 }
 function PocketModal({ onClose }) {
+  const st = useStore();
+  useRemoteInfo();
   React.useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); }, []);
+  const i = rem.info;
+  const urls = (i && i.urls && i.urls.length ? i.urls : i && i.primaryUrl ? [i.primaryUrl] : i && i.localUrl ? [i.localUrl] : []);
+  const primary = urls[0] || "";
+  const clientCount = Array.isArray(i && i.clients) ? i.clients.length : (i && +i.clients) || 0;
+  const fig = (label, val, unit) => h("div", { key: label }, h("small", { className: "ja-caps" }, label), h("b", null, val, unit ? h("u", null, unit) : null));
+  const ledeText = rem.err
+    ? (/404/.test(rem.err)
+      ? "后台服务尚未加载新路由，请按 Cmd+Q 完全退出并重新打开 DeepSeek Harness。"
+      : "连接服务异常：" + rem.err)
+    : i && !i.enabled
+      ? "局域网掌中服务当前已停用。轻点右上角「开启」，即可在同一 Wi-Fi 下用手机相机扫下方藏书票进入掌中画室。"
+      : i && !(i.urls && i.urls.length)
+        ? "当前仅检测到本机回环地址，请确认电脑已接入 Wi-Fi 或局域网。"
+        : "手机与电脑处于同一 Wi-Fi 时，用相机扫描下方铜版藏书票即可进入掌中画室——手稿对话、多卷巡检、小记账本与铜版遥控一应俱全。";
   return portal(h("div", { className: "ja-root ja-note-bg", onPointerDown: (e) => { if (e.target === e.currentTarget) onClose(); } },
-    h("article", { className: "ja-note", role: "dialog", "aria-label": "Pocket Atelier", style: { maxWidth: 560, padding: "24px 26px 20px" } },
+    h("article", { className: "ja-note", role: "dialog", "aria-label": "Pocket Atelier", style: { maxWidth: 560 } },
       h("button", { type: "button", className: "ja-x", "aria-label": "关闭", onClick: onClose }, "×"),
-      h("header", { className: "ja-mast", style: { marginBottom: 14 } },
+      h("header", { className: "ja-mast" },
         h("div", { className: "ja-mrow" },
-          h("span", { className: "ja-caps" }, "Pocket Atelier · LAN Remote"),
-          h("span", { className: "ja-caps" }, "Local Wi-Fi · 6-Digit PIN")),
+          h("span", { className: "ja-caps" }, "The Pocket Bookplate · Ex Libris"),
+          h("div", { className: "ja-seg" }, [["on", "开启"], ["off", "关闭"]].map(([k, l]) => h("button", {
+            key: k, type: "button",
+            "aria-pressed": (k === "on") === !!(i ? i.enabled : st.settings.remote !== false),
+            onClick: () => remAct({ enabled: k === "on" }),
+          }, l)))),
+        h("div", { className: "ja-mtitle" }, h("h2", null, "Pocket Atelier")),
         h("div", { className: "ja-orn", "aria-hidden": true }, h("i"), h("span", { className: "ja-orn-whale" }), h("i"))),
-      h(PocketCard, null),
-      h("footer", { className: "ja-nfoot", style: { marginTop: 14 } },
-        h("span", null, "所有指令均通过本机局域网直连，不经过任何外部服务器"),
-        h("span", null, "Esc 关闭")))));
+      h("p", { className: "ja-lede" }, ledeText),
+      h("div", { className: "ja-exlibris" },
+        h("span", { className: "ja-ex-top" }, `Ex Libris · ${displayName(st)} Atelier`),
+        h("div", { className: "ja-ex-qr" },
+          primary && i && i.listening
+            ? h(QrSvg, { text: primary, size: 156 })
+            : h("div", { style: { width: 156, height: 156, display: "grid", placeItems: "center", font: "italic 500 14px var(--f-serif)", color: "#8C8270" } }, i && !i.enabled ? "已停用" : "正在镌刻…")),
+        h("div", { className: "ja-ex-pin", title: "点击复制 6 位配对码", onClick: () => i && i.pin && copyText(i.pin, "已复制配对码 · " + i.pin) },
+          h("small", null, "PIN"),
+          h("b", null, (i && i.pin) || "------")),
+        h("span", { className: "ja-ex-sub" }, "Scan with phone camera on local Wi-Fi")),
+      h("div", { className: "ja-figs ja-figs-4" },
+        fig("Status", i && i.listening ? "Live" : "Off"),
+        fig("Port", (i && i.port) || 7788),
+        fig("Pairing PIN", (i && i.pin) || "—"),
+        fig("Linked", clientCount, "台")),
+      i && i.enabled && urls.length ? h("section", null,
+        h("h6", { className: "ja-caps" }, "LAN Folios · 局域网直连地址"),
+        h("ol", { className: "ja-done" }, urls.map((u, idx) => {
+          const clean = u.replace(/\?(k|pin)=.*$/, "");
+          return h("li", { key: u },
+            h("div", { className: "ja-dh" },
+              h("b", { onClick: () => copyText(u, "已复制带密钥遥控链接") }, clean),
+              h("small", null, idx === 0 ? "主地址 · 点击复制完整链接" : "备用网卡 · 点击复制")),
+            h("p", { className: "ja-dim" }, h("i", null, "钥"), `附一次性鉴权参数 ?k=${i.pin}，手机浏览器打开即自动配对`));
+        }))) : null,
+      h("footer", { className: "ja-nfoot" },
+        h("span", null, "Served directly from your Mac over LAN · 不经过任何外部服务器"),
+        h("div", { style: { display: "flex", alignItems: "center", gap: 10 } },
+          i && i.enabled ? h("button", { type: "button", className: "ja-foot-link", onClick: () => remAct({ resetPin: true }) }, "换新码 · Reset PIN") : null,
+          primary ? h("button", { type: "button", className: "ja-foot-link", onClick: () => copyText(primary, "已拓印掌中工坊链接") }, "拓印链接 · Copy URL") : null,
+          h("span", null, "Esc 关闭"))))));
 }
 
 /* ---------------- Desktop <-> Host Live Bridge ---------------- */
@@ -427,8 +476,11 @@ function setNativeValue(el, val) {
 }
 function sendDesktopPrompt(text) {
   const msg = String(text || "").trim(); if (!msg) return false;
-  const ta = [...document.querySelectorAll("textarea")].find((e) => !e.closest(".ja-root") && e.offsetParent !== null);
-  const ce = !ta && [...document.querySelectorAll('[contenteditable="true"]')].find((e) => !e.closest(".ja-root") && e.offsetParent !== null);
+  const activePaneEl = document.querySelector(".ja-split-pane.ja-active") || document;
+  const ta = [...activePaneEl.querySelectorAll("textarea")].find((e) => !e.closest(".ja-set, .ja-note") && e.offsetParent !== null)
+    || [...document.querySelectorAll("textarea")].find((e) => !e.closest(".ja-set, .ja-note") && e.offsetParent !== null);
+  const ce = !ta && ([...activePaneEl.querySelectorAll('[contenteditable="true"]')].find((e) => !e.closest(".ja-set, .ja-note") && e.offsetParent !== null)
+    || [...document.querySelectorAll('[contenteditable="true"]')].find((e) => !e.closest(".ja-set, .ja-note") && e.offsetParent !== null));
   const target = ta || ce;
   if (!target) return false;
   target.focus();
@@ -446,14 +498,21 @@ function sendDesktopPrompt(text) {
   return true;
 }
 function stopDesktopRun() {
-  const btns = [...document.querySelectorAll("button")].filter((b) => !b.closest(".ja-root") && b.offsetParent !== null);
+  const btns = [...document.querySelectorAll("button")].filter((b) => !b.closest(".ja-set, .ja-note") && b.offsetParent !== null);
   const stopBtn = btns.find((b) => /stop|abort|cancel|停止|终止|中断/i.test((b.getAttribute("aria-label") || "") + " " + (b.title || "") + " " + (b.textContent || "")));
   if (stopBtn) { stopBtn.click(); return true; }
   return false;
 }
 function selectDesktopSession(id, title) {
   if (!id && !title) return false;
-  activeSessionId = id || activeSessionId;
+  if (id) activeSessionId = id;
+  try {
+    const uiWs = CTX && CTX.get("uiWorkspace");
+    if (uiWs && id && typeof uiWs.openSession === "function") {
+      uiWs.openSession(id);
+      return true;
+    }
+  } catch {}
   const sess = (store.usage && store.usage.sessions && store.usage.sessions.find((x) => x.id === id)) || null;
   const wantTitle = (title || (sess && sess.title) || "").trim();
   const rows = [...document.querySelectorAll('[class*="_navItem"], [class*="_sessionItem"], [class*="_item_"], a[href*="session"]')].filter((e) => !e.closest(".ja-root") && e.offsetParent !== null);
@@ -463,7 +522,23 @@ function selectDesktopSession(id, title) {
   }
   return false;
 }
-function startNewDesktopSession() {
+function startNewDesktopSession(cwdOrWsId) {
+  try {
+    const uiWs = CTX && CTX.get("uiWorkspace");
+    const wsSvc = CTX && CTX.get("workspaces");
+    if (uiWs && wsSvc) {
+      const items = (wsSvc.list && wsSvc.list.get && wsSvc.list.get().items) || [];
+      let ws = cwdOrWsId ? items.find((w) => w.workspaceId === cwdOrWsId || w.path === cwdOrWsId || base(w.path) === cwdOrWsId) : null;
+      if (!ws && activeSessionId) ws = items.find((w) => (w.sessionIds || []).includes(activeSessionId));
+      if (!ws) ws = items[0];
+      if (ws && typeof uiWs.createSession === "function") {
+        uiWs.createSession(ws.workspaceId).then((sid) => {
+          if (sid) { activeSessionId = sid; uiWs.openSession(sid); }
+        }).catch(() => {});
+        return true;
+      }
+    }
+  } catch {}
   const btns = [...document.querySelectorAll('button, [role="button"], a')].filter((b) => !b.closest(".ja-root") && b.offsetParent !== null);
   const nb = btns.find((b) => /new chat|new session|新对话|新建会话|新会话/i.test((b.getAttribute("aria-label") || "") + " " + (b.title || "") + " " + (b.textContent || "")));
   if (nb) { nb.click(); return true; }
@@ -471,7 +546,7 @@ function startNewDesktopSession() {
 }
 function collectApprovals() {
   const m = hashMap(), col = document.querySelector(remap("[class*=icaHSq_column]", m)) || document.body;
-  const btns = [...col.querySelectorAll("button:not(:disabled)")].filter((b) => !b.closest(".ja-root") && b.offsetParent !== null);
+  const btns = [...col.querySelectorAll("button:not(:disabled)")].filter((b) => !b.closest(".ja-set, .ja-note") && b.offsetParent !== null);
   const out = [];
   for (const b of btns) {
     const label = (b.textContent || "").trim();
@@ -479,7 +554,7 @@ function collectApprovals() {
     if (/^(allow|approve|accept|confirm|run|execute|reject|deny|skip|允许|同意|批准|确认|执行|运行|拒绝|跳过|始终允许)/i.test(label)) {
       const card = b.closest('[class*="tool"], [class*="call"], [class*="confirm"], [class*="approval"], [class*="card"]') || b.parentElement?.parentElement;
       const title = card ? ((card.querySelector("code, pre, strong, b")?.textContent || "").trim().slice(0, 80)) : "";
-      out.push({ id: "ap-" + out.length + "-" + label, label, title: title || "Tool confirmation", _el: b });
+      out.push({ id: "ap-" + out.length + "-" + label, index: out.length, label, title: title || "Tool confirmation", _el: b });
     }
   }
   return out;
@@ -493,7 +568,7 @@ function collectLiveDom() {
   let streamText = "";
   const domMessages = [];
   if (col) {
-    const blocks = [...col.querySelectorAll('[class*="markdown"], [class*="message"], [class*="bubble"]')].filter((e) => !e.closest(".ja-root"));
+    const blocks = [...col.querySelectorAll('[class*="markdown"], [class*="message"], [class*="bubble"]')].filter((e) => !e.closest(".ja-set, .ja-note"));
     const tail = blocks.slice(-6);
     for (const b of tail) {
       const t = (b.textContent || "").trim();
@@ -513,10 +588,12 @@ function collectLiveDom() {
       streamText,
       streamThinking: "",
       domMessages,
-      approvals: apps.map(({ id, label, title }) => ({ id, label, title })),
+      approvals: apps.map(({ id, index, label, title }) => ({ id, index, label, title })),
       models: Object.keys((store.usage && store.usage.models) || {}),
       workspaces: [...new Set(sessions.map((x) => x.cwd).filter(Boolean))].slice(0, 16),
       phase,
+      splitActive: isSplitPanelActive(),
+      splitCount: splitStore.panes.length,
     },
     _apps: apps,
   };
@@ -534,10 +611,13 @@ function execRemoteCmd(cmd, apps) {
     if (p.sessionId && p.sessionId !== activeSessionId) selectDesktopSession(p.sessionId, p.title);
     setTimeout(() => sendDesktopPrompt(p.text), p.sessionId && p.sessionId !== activeSessionId ? 220 : 10);
   } else if (cmd.type === "stop") { stopDesktopRun(); }
-  else if (cmd.type === "newSession") { startNewDesktopSession(); }
+  else if (cmd.type === "newSession") { startNewDesktopSession(p.cwd || p.workspaceId); }
   else if (cmd.type === "selectSession") { selectDesktopSession(p.sessionId, p.title); }
+  else if (cmd.type === "setWorkspace") { if (p.cwd) startNewDesktopSession(p.cwd); }
+  else if (cmd.type === "openSplit") { openSplitView(p.sessionId, p.workspaceId || p.cwd); }
+  else if (cmd.type === "closeSplit") { closeSplitView(); }
   else if (cmd.type === "approve") {
-    const hit = (apps || []).find((a) => a.id === p.id || a.label === p.label);
+    const hit = (apps || []).find((a) => a.id === p.id || a.index === p.index || a.label === p.label);
     if (hit && hit._el) hit._el.click();
   }
 }
@@ -752,7 +832,8 @@ function HeroMark() {
       h("span", { className: "ja-rule" }),
       h("span", { className: "ja-caps" }, `Day ${d.dayNo} · since ${MONTHS[first.getMonth()]} ${first.getDate()}`),
       s.notes !== false ? h("button", { type: "button", className: "ja-dl-btn", title: "翻阅工坊小记（日报 / 周报 / 月报）", onClick: openGazette }, "Gazette ›") : null,
-      h("button", { type: "button", className: "ja-dl-btn", title: "打开手机扫码遥控（Pocket Atelier）", onClick: () => openModal({ type: "pocket" }) }, "Pocket ⚃")),
+      h("button", { type: "button", className: "ja-dl-btn", title: "同屏并置多个项目或会话（Parallel Folios · 多卷同览）", onClick: () => openSplitView() }, "Parallel ›"),
+      h("button", { type: "button", className: "ja-dl-btn", title: "打开手机扫码遥控藏书票（Pocket Atelier · Ex Libris）", onClick: () => openModal({ type: "pocket" }) }, "Pocket ›")),
     showPlate ? h("div", { className: "ja-plate", ref: plateRef, title: "移动鼠标打光 · 点击喷水 · 左上角切换昼夜节气" },
       h("canvas", { ref: cvRef, "aria-label": "ASCII whale" }),
       h("span", { className: "ja-pc ja-tl", role: "button", tabIndex: 0, title: "点击切换铜版画时辰 / 飞雪预览（当前：" + (rawPhase === "auto" ? "自动" : rawPhase) + "）", onClick: cyclePhase },
@@ -1706,6 +1787,619 @@ function registerBotThemes() {
   return () => { shapeOffs.forEach((f) => { try { typeof f === "function" && f(); } catch {} }); try { typeof botOff === "function" && botOff(); } catch {} botHub = null; botOff = null; botKey = null; };
 }
 
+/* ---------------- Parallel Folios · 多卷同览 (Multi-Project Split Workbench) ---------------- */
+const SPLIT_PANEL_ID = "jules-atelier-split";
+const ROMAN = ["I", "II", "III", "IV"];
+let paneSeq = 0, splitLoaded = false, splitBypass = false;
+const splitStore = {
+  panes: [], // [{ id, sessionId, workspaceId }]
+  activePaneId: "",
+};
+function loadSplitState() {
+  if (splitLoaded) return;
+  splitLoaded = true;
+  try {
+    const raw = JSON.parse(localStorage.getItem("ja-split-state") || "null");
+    if (raw && Array.isArray(raw.panes) && raw.panes.length) {
+      splitStore.panes = raw.panes.slice(0, 4).map((p) => ({
+        id: String(p.id || ("p-" + (++paneSeq))),
+        sessionId: String(p.sessionId || ""),
+        workspaceId: String(p.workspaceId || ""),
+      }));
+      splitStore.activePaneId = String(raw.activePaneId || splitStore.panes[0].id);
+    }
+  } catch {}
+}
+function saveSplitState() {
+  try {
+    localStorage.setItem("ja-split-state", JSON.stringify({
+      panes: splitStore.panes,
+      activePaneId: splitStore.activePaneId,
+    }));
+  } catch {}
+  emit();
+}
+function getHostWorkspaces() {
+  try {
+    const ws = CTX && CTX.get("workspaces");
+    if (ws && ws.list && typeof ws.list.get === "function") {
+      const st = ws.list.get();
+      if (st && Array.isArray(st.items)) return st.items;
+    }
+  } catch {}
+  return [];
+}
+function getHostSessions() {
+  try {
+    const ss = CTX && CTX.get("sessions");
+    if (ss && ss.list && typeof ss.list.get === "function") {
+      const st = ss.list.get();
+      if (st && st.byId) return st;
+    }
+  } catch {}
+  return { ids: [], byId: {} };
+}
+function wsOfSession(sessionId, wsItems) {
+  if (!sessionId) return "";
+  const items = wsItems || getHostWorkspaces();
+  const hit = items.find((w) => Array.isArray(w.sessionIds) && w.sessionIds.includes(sessionId));
+  if (hit) return hit.workspaceId;
+  const byId = getHostSessions().byId;
+  if (byId && byId[sessionId] && byId[sessionId].workspaceId) return byId[sessionId].workspaceId;
+  return "";
+}
+function isSplitPanelActive() {
+  try {
+    const layout = CTX && CTX.get("layout");
+    if (layout && layout.activePanelId && typeof layout.activePanelId.get === "function") {
+      return layout.activePanelId.get() === SPLIT_PANEL_ID;
+    }
+  } catch {}
+  return !!document.querySelector(".ja-split-root");
+}
+function connectPaneWorkspace(paneId, workspaceId, createFresh) {
+  if (!workspaceId || !CTX) return;
+  try {
+    const uiWs = CTX.get("uiWorkspace");
+    if (!uiWs) return;
+    const fn = createFresh && typeof uiWs.createSession === "function"
+      ? () => uiWs.createSession(workspaceId)
+      : typeof uiWs.connectWorkspace === "function"
+        ? () => uiWs.connectWorkspace(workspaceId)
+        : null;
+    if (!fn) return;
+    fn().then((sid) => {
+      if (!sid) return;
+      const pane = splitStore.panes.find((p) => p.id === paneId);
+      if (pane) {
+        pane.sessionId = sid;
+        pane.workspaceId = workspaceId;
+        activeSessionId = sid;
+        saveSplitState();
+      }
+    }).catch(() => {});
+  } catch {}
+}
+function pickNextCandidate(usedSessionIds, usedWorkspaceIds) {
+  const wsItems = getHostWorkspaces();
+  const ss = getHostSessions();
+  // 1. Prefer a different project (workspace) that already has a session
+  const diffWsWithSess = wsItems.find((w) => !usedWorkspaceIds.has(w.workspaceId) && Array.isArray(w.sessionIds) && w.sessionIds.some((id) => !usedSessionIds.has(id)));
+  if (diffWsWithSess) {
+    const sid = diffWsWithSess.sessionIds.find((id) => !usedSessionIds.has(id)) || "";
+    return { sessionId: sid, workspaceId: diffWsWithSess.workspaceId };
+  }
+  // 2. Or a different project without sessions yet (we'll auto-connect it)
+  const diffWsEmpty = wsItems.find((w) => !usedWorkspaceIds.has(w.workspaceId));
+  if (diffWsEmpty) {
+    return { sessionId: "", workspaceId: diffWsEmpty.workspaceId, autoConnect: true };
+  }
+  // 3. Or another session from any workspace
+  const otherSid = (ss.ids || []).find((id) => !usedSessionIds.has(id))
+    || ((store.usage && store.usage.sessions) || []).map((x) => x.id).find((id) => !usedSessionIds.has(id))
+    || "";
+  if (otherSid) {
+    return { sessionId: otherSid, workspaceId: wsOfSession(otherSid, wsItems) };
+  }
+  return { sessionId: "", workspaceId: (wsItems[0] && wsItems[0].workspaceId) || "", autoConnect: !!(wsItems[0] && wsItems[0].workspaceId) };
+}
+function ensureSplitPanes(targetSessionId, targetWorkspaceId) {
+  loadSplitState();
+  const wsItems = getHostWorkspaces();
+  const ss = getHostSessions();
+  // Resolve workspaceId if a path or name was passed
+  let resolvedWsId = targetWorkspaceId || "";
+  if (resolvedWsId && !wsItems.some((w) => w.workspaceId === resolvedWsId)) {
+    const byPath = wsItems.find((w) => w.path === resolvedWsId || base(w.path) === resolvedWsId || w.title === resolvedWsId);
+    if (byPath) resolvedWsId = byPath.workspaceId;
+  }
+  // Prune sessions that no longer exist if host session list is ready
+  if (ss.ids && ss.ids.length > 0) {
+    for (const p of splitStore.panes) {
+      if (p.sessionId && !ss.byId[p.sessionId]) p.sessionId = "";
+      if (p.sessionId && !p.workspaceId) p.workspaceId = wsOfSession(p.sessionId, wsItems);
+    }
+  }
+  const curPrimary = activeSessionId || (ss.ids && ss.ids[0]) || (store.usage && store.usage.sessions && store.usage.sessions[0] && store.usage.sessions[0].id) || "";
+  if (splitStore.panes.length === 0) {
+    const p1Id = "p-" + (++paneSeq);
+    const p1Sid = (targetSessionId && curPrimary && targetSessionId !== curPrimary) ? curPrimary : (targetSessionId || curPrimary);
+    const p1Ws = wsOfSession(p1Sid, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "";
+    splitStore.panes.push({ id: p1Id, sessionId: p1Sid, workspaceId: p1Ws });
+  }
+  if (splitStore.panes.length < 2) {
+    const p1 = splitStore.panes[0];
+    const p2Id = "p-" + (++paneSeq);
+    if (targetSessionId && targetSessionId !== p1.sessionId) {
+      const p2Ws = resolvedWsId || wsOfSession(targetSessionId, wsItems);
+      splitStore.panes.push({ id: p2Id, sessionId: targetSessionId, workspaceId: p2Ws });
+      splitStore.activePaneId = p2Id;
+    } else if (resolvedWsId && resolvedWsId !== p1.workspaceId) {
+      const wsObj = wsItems.find((w) => w.workspaceId === resolvedWsId);
+      const sid = (wsObj && wsObj.sessionIds && wsObj.sessionIds.find((id) => id !== p1.sessionId)) || "";
+      splitStore.panes.push({ id: p2Id, sessionId: sid, workspaceId: resolvedWsId });
+      splitStore.activePaneId = p2Id;
+      if (!sid) connectPaneWorkspace(p2Id, resolvedWsId, false);
+    } else {
+      const cand = pickNextCandidate(new Set([p1.sessionId].filter(Boolean)), new Set([p1.workspaceId].filter(Boolean)));
+      splitStore.panes.push({ id: p2Id, sessionId: cand.sessionId, workspaceId: cand.workspaceId });
+      splitStore.activePaneId = p2Id;
+      if (!cand.sessionId && cand.autoConnect && cand.workspaceId) connectPaneWorkspace(p2Id, cand.workspaceId, true);
+    }
+  } else if (targetSessionId || resolvedWsId) {
+    const existing = targetSessionId && splitStore.panes.find((p) => p.sessionId === targetSessionId);
+    if (existing) {
+      splitStore.activePaneId = existing.id;
+    } else if (isSplitPanelActive()) {
+      const targetPane = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[splitStore.panes.length - 1];
+      if (targetPane) {
+        if (targetSessionId) {
+          targetPane.sessionId = targetSessionId;
+          targetPane.workspaceId = resolvedWsId || wsOfSession(targetSessionId, wsItems) || targetPane.workspaceId;
+        } else if (resolvedWsId) {
+          targetPane.workspaceId = resolvedWsId;
+          const wsObj = wsItems.find((w) => w.workspaceId === resolvedWsId);
+          const sid = (wsObj && wsObj.sessionIds && wsObj.sessionIds[0]) || "";
+          targetPane.sessionId = sid;
+          if (!sid) connectPaneWorkspace(targetPane.id, resolvedWsId, false);
+        }
+      }
+    } else if (targetSessionId) {
+      // Entering Split View from Single View with an explicit target session
+      if (curPrimary && curPrimary !== targetSessionId) {
+        splitStore.panes[0].sessionId = curPrimary;
+        splitStore.panes[0].workspaceId = wsOfSession(curPrimary, wsItems) || splitStore.panes[0].workspaceId;
+        splitStore.panes[1].sessionId = targetSessionId;
+        splitStore.panes[1].workspaceId = resolvedWsId || wsOfSession(targetSessionId, wsItems);
+        splitStore.activePaneId = splitStore.panes[1].id;
+      } else {
+        splitStore.panes[0].sessionId = targetSessionId;
+        splitStore.panes[0].workspaceId = resolvedWsId || wsOfSession(targetSessionId, wsItems);
+        splitStore.activePaneId = splitStore.panes[0].id;
+      }
+    }
+  }
+  if (!splitStore.panes.some((p) => p.id === splitStore.activePaneId)) {
+    splitStore.activePaneId = splitStore.panes[0].id;
+  }
+  saveSplitState();
+}
+function openSplitView(targetSessionId, targetWorkspaceId) {
+  ensureSplitPanes(targetSessionId, targetWorkspaceId);
+  try {
+    const layout = CTX && CTX.get("layout");
+    if (layout && typeof layout.selectPanel === "function") {
+      layout.selectPanel(SPLIT_PANEL_ID);
+      emit();
+      return true;
+    }
+  } catch (e) { console.warn("jules-atelier: openSplitView", e); }
+  return false;
+}
+function closeSplitView(focusSessionId) {
+  const sid = focusSessionId
+    || (splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0] || {}).sessionId
+    || activeSessionId;
+  splitBypass = true;
+  try {
+    const layout = CTX && CTX.get("layout");
+    if (layout && typeof layout.selectPanel === "function") layout.selectPanel(null);
+    if (sid) {
+      activeSessionId = sid;
+      const uiWs = CTX && CTX.get("uiWorkspace");
+      if (uiWs && typeof uiWs.openSession === "function") uiWs.openSession(sid);
+    }
+  } catch {}
+  setTimeout(() => { splitBypass = false; emit(); }, 50);
+}
+function setSplitCount(wantCount) {
+  loadSplitState();
+  const n = Math.max(2, Math.min(4, wantCount));
+  while (splitStore.panes.length < n) {
+    const usedS = new Set(splitStore.panes.map((p) => p.sessionId).filter(Boolean));
+    const usedW = new Set(splitStore.panes.map((p) => p.workspaceId).filter(Boolean));
+    const cand = pickNextCandidate(usedS, usedW);
+    const pid = "p-" + (++paneSeq);
+    splitStore.panes.push({ id: pid, sessionId: cand.sessionId, workspaceId: cand.workspaceId });
+    splitStore.activePaneId = pid;
+    if (!cand.sessionId && cand.autoConnect && cand.workspaceId) connectPaneWorkspace(pid, cand.workspaceId, true);
+  }
+  if (splitStore.panes.length > n) {
+    splitStore.panes = splitStore.panes.slice(0, n);
+    if (!splitStore.panes.some((p) => p.id === splitStore.activePaneId)) {
+      splitStore.activePaneId = splitStore.panes[splitStore.panes.length - 1].id;
+    }
+  }
+  saveSplitState();
+}
+function removeSplitPane(paneId) {
+  if (splitStore.panes.length <= 2) {
+    const other = splitStore.panes.find((p) => p.id !== paneId);
+    closeSplitView(other ? other.sessionId : "");
+    return;
+  }
+  splitStore.panes = splitStore.panes.filter((p) => p.id !== paneId);
+  if (splitStore.activePaneId === paneId) {
+    splitStore.activePaneId = splitStore.panes[0].id;
+  }
+  saveSplitState();
+}
+function patchWorkspaceRouting() {
+  if (!CTX) return () => {};
+  let uiWs = null;
+  try { uiWs = CTX.get("uiWorkspace"); } catch {}
+  if (!uiWs || uiWs.__jaPatched) return () => {};
+  const origOpenSession = uiWs.openSession.bind(uiWs);
+  const origOpenWorkspace = uiWs.openWorkspace.bind(uiWs);
+  uiWs.__jaPatched = true;
+  uiWs.openSession = async (sessionId, ...rest) => {
+    if (sessionId) activeSessionId = sessionId;
+    if (!splitBypass && isSplitPanelActive() && sessionId) {
+      loadSplitState();
+      const existing = splitStore.panes.find((p) => p.sessionId === sessionId);
+      if (existing) {
+        splitStore.activePaneId = existing.id;
+      } else {
+        const target = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0];
+        if (target) {
+          target.sessionId = sessionId;
+          target.workspaceId = wsOfSession(sessionId) || target.workspaceId;
+        }
+      }
+      saveSplitState();
+      return;
+    }
+    return origOpenSession(sessionId, ...rest);
+  };
+  uiWs.openWorkspace = async (workspaceId, ...rest) => {
+    if (!splitBypass && isSplitPanelActive() && workspaceId) {
+      loadSplitState();
+      const target = splitStore.panes.find((p) => p.id === splitStore.activePaneId) || splitStore.panes[0];
+      if (target) {
+        target.workspaceId = workspaceId;
+        const wsItems = getHostWorkspaces();
+        const wsObj = wsItems.find((w) => w.workspaceId === workspaceId);
+        const usedS = new Set(splitStore.panes.filter((p) => p.id !== target.id).map((p) => p.sessionId).filter(Boolean));
+        const sid = (wsObj && wsObj.sessionIds && (wsObj.sessionIds.find((id) => !usedS.has(id)) || wsObj.sessionIds[0])) || "";
+        if (sid) {
+          target.sessionId = sid;
+          activeSessionId = sid;
+          saveSplitState();
+        } else {
+          saveSplitState();
+          connectPaneWorkspace(target.id, workspaceId, false);
+        }
+        return;
+      }
+    }
+    return origOpenWorkspace(workspaceId, ...rest);
+  };
+  return () => {
+    uiWs.openSession = origOpenSession;
+    uiWs.openWorkspace = origOpenWorkspace;
+    delete uiWs.__jaPatched;
+  };
+}
+
+function FixedChatConversationView(props) {
+  return h(React.Fragment, null, props.renderSlot ? props.renderSlot("conversation.session", { view: "chat" }) : null);
+}
+function SplitConversationPane(props) {
+  const { sessionId, useSession, useConversation, useSessions, renderFactorySlot } = props;
+  const session = useSession ? useSession((v) => v) : null;
+  const conv = useConversation ? useConversation((v) => v) : null;
+  const summaryBlank = useSessions ? useSessions((st) => (st && st.byId && sessionId && st.byId[sessionId]) ? st.byId[sessionId].blank : undefined) : undefined;
+  if (!session || !conv || !renderFactorySlot) return null;
+  const shellPhase = (conv.activeTargets && conv.activeTargets.size > 0) || (!session.blank && !session.awaitingFirstTurn) || session.running ? "active" : session.promptAttempted ? "engaging" : "blank";
+  const settling = shellPhase === "blank" && session.openState === "loading" && summaryBlank !== true;
+  const hero = shellPhase === "blank" && (session.openState === "open" || summaryBlank === true);
+  return renderFactorySlot("conversation.content", {
+    variant: "embedded",
+    phase: settling ? "settling" : hero ? "hero" : "active",
+    hero,
+  }, { slots: { views: FixedChatConversationView } });
+}
+function SplitPaneSessionHost({ sessionId, SessionProvider, renderSlot }) {
+  const [reference, setReference] = React.useState(null);
+  const [err, setErr] = React.useState("");
+  React.useEffect(() => {
+    if (!sessionId || !CTX) { setReference(null); setErr(""); return; }
+    let sessionsSvc = null;
+    try { sessionsSvc = CTX.get("sessions"); } catch {}
+    if (!sessionsSvc || typeof sessionsSvc.retain !== "function") return;
+    const ctrl = new AbortController();
+    setReference(null); setErr("");
+    sessionsSvc.retain(sessionId, { source: "sidebarChat", signal: ctrl.signal }).then(
+      (ref) => { if (!ctrl.signal.aborted) setReference(ref); },
+      (e) => { if (!ctrl.signal.aborted) setErr(String((e && e.message) || e)); },
+    );
+    return () => ctrl.abort();
+  }, [sessionId]);
+  if (err) {
+    return h("div", { className: "ja-sp-empty" },
+      h("span", { className: "ja-caps" }, "Session Unavailable"),
+      h("h4", null, "此卷会话已归档或不存在"),
+      h("p", null, "请从上方项目或会话菜单中选择另一卷，或点击左侧栏任意会话。"));
+  }
+  if (!reference || !SessionProvider || !renderSlot) {
+    return h("div", { className: "ja-sp-empty" },
+      h("span", { className: "ja-caps" }, "Opening Folio"),
+      h("h4", null, "正在展卷…"));
+  }
+  return h(SessionProvider, { session: reference }, renderSlot("ja.split.conversation", { sessionId }));
+}
+
+function SplitPaneView({ pane, idx, total, isActive, wsItems, sessionsById, statusMap, s, SessionProvider, renderSlot }) {
+  const [menu, setMenu] = React.useState(null); // { kind: "ws" | "sess", left, top }
+  const wsBtnRef = React.useRef(null), sessBtnRef = React.useRef(null), menuRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!menu) return;
+    const down = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (wsBtnRef.current && wsBtnRef.current.contains(e.target)) return;
+      if (sessBtnRef.current && sessBtnRef.current.contains(e.target)) return;
+      setMenu(null);
+    };
+    const key = (e) => { if (e.key === "Escape") setMenu(null); };
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("pointerdown", down, true); document.removeEventListener("keydown", key); };
+  }, [menu]);
+
+  const sessMeta = (pane.sessionId && sessionsById[pane.sessionId]) || null;
+  const usageSess = (store.usage && store.usage.sessions && store.usage.sessions.find((x) => x.id === pane.sessionId)) || null;
+  const wsId = pane.workspaceId || (sessMeta && sessMeta.workspaceId) || wsOfSession(pane.sessionId, wsItems) || (wsItems[0] && wsItems[0].workspaceId) || "";
+  const wsObj = wsItems.find((w) => w.workspaceId === wsId) || null;
+  const wsTitle = (wsObj && (wsObj.title || base(wsObj.path))) || (usageSess && base(usageSess.cwd)) || "选择项目";
+  const sessTitle = (sessMeta && sessMeta.title) || (usageSess && usageSess.title) || (pane.sessionId ? "新会话 · Fresh Sheet" : "未选会话");
+  const stInfo = (pane.sessionId && statusMap && typeof statusMap.get === "function" && statusMap.get(pane.sessionId)) || null;
+  const running = !!(stInfo ? stInfo.running : (usageSess && usageSess.running));
+  const waiting = !!(stInfo && stInfo.pendingInteraction);
+  const cost = usageSess ? bagCost(usageSess.by, s) : 0;
+
+  const focusThisPane = () => {
+    if (splitStore.activePaneId !== pane.id) {
+      splitStore.activePaneId = pane.id;
+      if (pane.sessionId) activeSessionId = pane.sessionId;
+      saveSplitState();
+    }
+  };
+  const toggleMenu = (kind, btnEl) => {
+    focusThisPane();
+    if (menu && menu.kind === kind) { setMenu(null); return; }
+    const r = btnEl ? btnEl.getBoundingClientRect() : { left: 100, bottom: 80 };
+    const left = Math.max(12, Math.min(window.innerWidth - 322, r.left));
+    const top = Math.min(window.innerHeight - 390, r.bottom + 6);
+    setMenu({ kind, left, top });
+  };
+  const selectProject = (w) => {
+    setMenu(null);
+    pane.workspaceId = w.workspaceId;
+    const usedS = new Set(splitStore.panes.filter((p) => p.id !== pane.id).map((p) => p.sessionId).filter(Boolean));
+    const sid = (w.sessionIds && (w.sessionIds.find((id) => !usedS.has(id)) || w.sessionIds[0])) || "";
+    if (sid) {
+      pane.sessionId = sid;
+      activeSessionId = sid;
+      saveSplitState();
+    } else {
+      pane.sessionId = "";
+      saveSplitState();
+      connectPaneWorkspace(pane.id, w.workspaceId, false);
+    }
+  };
+  const selectSess = (sid, wid) => {
+    setMenu(null);
+    pane.sessionId = sid;
+    if (wid) pane.workspaceId = wid;
+    activeSessionId = sid;
+    saveSplitState();
+  };
+  const createNewInPane = () => {
+    setMenu(null);
+    focusThisPane();
+    const targetWs = wsId || (wsItems[0] && wsItems[0].workspaceId);
+    if (targetWs) connectPaneWorkspace(pane.id, targetWs, true);
+    else startNewDesktopSession();
+  };
+  const createNewProject = () => {
+    setMenu(null);
+    try {
+      const uiWs = CTX && CTX.get("uiWorkspace");
+      if (uiWs && typeof uiWs.createWorkspace === "function") {
+        uiWs.createWorkspace().then((newWsId) => {
+          if (newWsId) connectPaneWorkspace(pane.id, newWsId, true);
+        }).catch(() => {});
+      }
+    } catch {}
+  };
+
+  const wsSessions = (wsObj && Array.isArray(wsObj.sessionIds) ? wsObj.sessionIds : [])
+    .map((id) => sessionsById[id] || (store.usage && store.usage.sessions && store.usage.sessions.find((x) => x.id === id)) || { id, title: "会话" })
+    .filter(Boolean);
+
+  return h("section", {
+    className: "ja-split-pane" + (isActive ? " ja-active" : ""),
+    onPointerDownCapture: focusThisPane,
+  },
+    h("header", { className: "ja-sp-head" },
+      h("button", {
+        type: "button", className: "ja-sp-no",
+        title: isActive ? `卷 ${ROMAN[idx]}（当前焦点卷，点击左侧栏会话将投送至此）` : `点击将卷 ${ROMAN[idx]} 设为焦点卷`,
+        onClick: focusThisPane,
+      }, ROMAN[idx] || String(idx + 1)),
+      h("span", { className: "ja-sp-dot" + (running ? " ja-run" : waiting ? " ja-wait" : ""), title: running ? "正在生成…" : waiting ? "等待工具确认" : "就绪" }),
+      h("button", {
+        type: "button", ref: wsBtnRef, className: "ja-sp-pick",
+        title: "切换此卷所属项目（Workspace）",
+        onClick: (e) => { e.stopPropagation(); toggleMenu("ws", e.currentTarget); },
+      }, h("small", null, "项目"), h("b", null, wsTitle), h("small", null, "▾")),
+      h("button", {
+        type: "button", ref: sessBtnRef, className: "ja-sp-pick ja-sp-sess",
+        title: "切换此卷对话或新建会话",
+        onClick: (e) => { e.stopPropagation(); toggleMenu("sess", e.currentTarget); },
+      }, h("b", null, sessTitle), h("small", null, "▾")),
+      cost > 0 ? h("span", { className: "ja-caps", style: { color: "var(--gold-deep)", flex: "none" } }, money(cost, s)) : null,
+      h("button", {
+        type: "button", className: "ja-sp-ibtn",
+        title: "在此项目新建会话",
+        onClick: (e) => { e.stopPropagation(); createNewInPane(); },
+      }, "+ 新卷"),
+      h("button", {
+        type: "button", className: "ja-sp-ibtn",
+        title: "退出分屏并全屏独览此卷",
+        onClick: (e) => { e.stopPropagation(); closeSplitView(pane.sessionId); },
+      }, "独览"),
+      total > 2 ? h("button", {
+        type: "button", className: "ja-sp-ibtn",
+        title: "收起此卷",
+        onClick: (e) => { e.stopPropagation(); removeSplitPane(pane.id); },
+      }, "×") : null),
+    h("div", { className: "ja-sp-body" },
+      pane.sessionId
+        ? h(SplitPaneSessionHost, { key: pane.sessionId, sessionId: pane.sessionId, SessionProvider, renderSlot })
+        : h("div", { className: "ja-sp-empty" },
+            h("span", { className: "ja-caps" }, `Folio ${ROMAN[idx]} · Ready`),
+            h("h4", null, "展卷待书 · 请选择项目或会话"),
+            h("p", null, "可从上方菜单选择另一个项目并排开展工作，或直接点击左侧边栏中的任意项目与会话。"),
+            h("div", { style: { display: "flex", gap: 8, marginTop: 6 } },
+              h("button", { type: "button", className: "ja-btn ja-btn-ink", onClick: createNewInPane }, "+ 在当前项目新建会话"),
+              wsItems.length > 1 ? h("button", { type: "button", className: "ja-btn", onClick: (e) => toggleMenu("ws", wsBtnRef.current || e.currentTarget) }, "切换其他项目 ›") : null))),
+    menu ? portal(h("div", {
+      ref: menuRef, className: "ja-root ja-sp-menu",
+      style: { left: menu.left, top: menu.top },
+    },
+      menu.kind === "ws" ? h(React.Fragment, null,
+        h("div", { className: "ja-sp-mhead" },
+          h("span", { className: "ja-caps" }, `Select Project · 卷 ${ROMAN[idx]} 项目`),
+          h("button", { type: "button", className: "ja-link", onClick: createNewProject }, "+ 新建项目")),
+        wsItems.length === 0
+          ? h("div", { style: { padding: "12px 8px", color: "var(--ink-3)", fontSize: 12 } }, "暂无已打开的项目文件夹")
+          : wsItems.map((w, i) => h("button", {
+              key: w.workspaceId, type: "button",
+              className: "ja-sp-mitem" + (w.workspaceId === wsId ? " ja-cur" : ""),
+              onClick: () => selectProject(w),
+            },
+              h("span", { className: "ja-caps", style: { width: 18, color: "var(--gold-deep)" } }, ROMAN[i] || (i + 1)),
+              h("b", null, w.title || base(w.path)),
+              h("small", null, `${(w.sessionIds && w.sessionIds.length) || 0} 会话`))))
+      : h(React.Fragment, null,
+          h("div", { className: "ja-sp-mhead" },
+            h("span", { className: "ja-caps" }, `${wsTitle} · 会话列表`),
+            h("button", { type: "button", className: "ja-link", onClick: createNewInPane }, "+ 新建会话")),
+          wsSessions.length === 0
+            ? h("div", { style: { padding: "12px 8px", color: "var(--ink-3)", fontSize: 12 } }, "该项目下暂无会话，点击右上角「+ 新建会话」立即开始。")
+            : wsSessions.slice(0, 25).map((x) => {
+                const sid = x.id || x.sessionId;
+                const uSess = store.usage && store.usage.sessions && store.usage.sessions.find((u) => u.id === sid);
+                const c = uSess ? bagCost(uSess.by, s) : 0;
+                return h("button", {
+                  key: sid, type: "button",
+                  className: "ja-sp-mitem" + (sid === pane.sessionId ? " ja-cur" : ""),
+                  onClick: () => selectSess(sid, wsId),
+                },
+                  h("b", null, x.title || (uSess && uSess.title) || "新会话 · Fresh Sheet"),
+                  h("small", null, c > 0 ? money(c, s) : (uSess && uSess.turns ? `${uSess.turns} 轮` : "空白")));
+              })))) : null);
+}
+
+function SplitWorkbench(props) {
+  const st = useStore(), s = st.settings;
+  loadSplitState();
+  React.useEffect(() => {
+    if (splitStore.panes.length < 2) ensureSplitPanes();
+  }, []);
+  const wsState = props.useWorkspaces ? props.useWorkspaces((v) => v) : null;
+  const sessState = props.useSessions ? props.useSessions((v) => v) : null;
+  const statusMap = props.useSessionStatus ? props.useSessionStatus((v) => v) : null;
+  const wsItems = (wsState && wsState.items) || getHostWorkspaces();
+  const sessionsById = (sessState && sessState.byId) || getHostSessions().byId || {};
+  const panes = splitStore.panes;
+  const count = panes.length;
+  const layoutKey = count >= 4 ? "grid-4" : count === 3 ? "cols-3" : count === 2 ? "cols-2" : "cols-1";
+  const activeIdx = Math.max(0, panes.findIndex((p) => p.id === splitStore.activePaneId));
+
+  return h("div", { className: "ja-root ja-split-root" },
+    h("header", { className: "ja-split-bar" },
+      h("div", { className: "ja-split-brand" },
+        h("span", { className: "ja-caps", style: { color: "var(--gold-deep)" } }, "Parallel Folios"),
+        h("b", null, "多卷同览"),
+        h("em", null, `${count} Folios`),
+        h("span", { className: "ja-split-hint" }, `· 当前焦点：卷 ${ROMAN[activeIdx] || "I"}（点选左侧栏项目或会话可直接投送至焦点卷）`)),
+      h("div", { className: "ja-split-actions" },
+        h("div", { className: "ja-seg" },
+          [[2, "双卷 1×2"], [3, "三卷 1×3"], [4, "四卷 2×2"]].map(([n, label]) => h("button", {
+            key: n, type: "button",
+            "aria-pressed": count === n,
+            onClick: () => setSplitCount(n),
+          }, label))),
+        count < 4 ? h("button", { type: "button", className: "ja-btn", onClick: () => setSplitCount(count + 1) }, "+ 添一卷") : null,
+        h("button", { type: "button", className: "ja-btn ja-btn-ink", onClick: () => closeSplitView() }, "收卷 · 单屏"))),
+    h("div", { className: "ja-split-stage", "data-layout": layoutKey },
+      panes.map((pane, idx) => h(SplitPaneView, {
+        key: pane.id,
+        pane,
+        idx,
+        total: count,
+        isActive: pane.id === splitStore.activePaneId,
+        wsItems,
+        sessionsById,
+        statusMap,
+        s,
+        SessionProvider: props.SessionProvider,
+        renderSlot: props.renderSlot,
+      }))));
+}
+
+function SplitSidebarIcon() {
+  return h("svg", { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    h("rect", { x: 1.5, y: 2.2, width: 5.5, height: 11.6, rx: 1, stroke: "currentColor", strokeWidth: 1.2 }),
+    h("rect", { x: 9, y: 2.2, width: 5.5, height: 11.6, rx: 1, stroke: "var(--ja-gold, #A48659)", strokeWidth: 1.2 }),
+    h("path", { d: "M3.2 5.2H5.3M3.2 7.5H5.3M10.7 5.2H12.8M10.7 7.5H12.8", stroke: "currentColor", strokeWidth: 1, strokeLinecap: "round" }));
+}
+function SplitHeaderButton({ sessionId }) {
+  useStore();
+  if (isSplitPanelActive()) return null;
+  return h("button", {
+    type: "button",
+    className: "ja-root ja-hdr-split",
+    title: "开启多卷同览（Parallel Folios），与其他项目或会话同屏并置对照",
+    onClick: () => openSplitView(sessionId || activeSessionId),
+  },
+    h(SplitSidebarIcon, null),
+    h("span", null, "多卷并置"));
+}
+function SplitRowActionButton({ sessionId }) {
+  return h("button", {
+    type: "button",
+    className: "ja-root ja-row-split",
+    title: "在多卷分屏中并置打开此会话",
+    onClick: (e) => {
+      e.stopPropagation();
+      openSplitView(sessionId);
+    },
+  }, h(SplitSidebarIcon, null));
+}
+
 /* ---------------- plugin ---------------- */
 function addStyle(id, text) {
   let el = document.getElementById(id);
@@ -1716,9 +2410,10 @@ function addStyle(id, text) {
 function apply(ctx) {
   ctx.effect(() => {
     CTX = ctx; const a = addStyle("ja-fonts", FONT_CSS);
-    syncPalette(); applyBodyFlags(); loadSettings(); startSea(); startBridge(); const bt = registerBotThemes();
+    syncPalette(); applyBodyFlags(); loadSettings(); startSea(); startBridge();
+    const bt = registerBotThemes(), pr = patchWorkspaceRouting();
     const nt = setTimeout(() => updNotice().catch(() => {}), 4000);
-    return () => { clearTimeout(nt); bt(); a(); stopBridge(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink", "ja-pal-cinnabar"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
+    return () => { clearTimeout(nt); pr(); bt(); a(); stopBridge(); stopSea(); dropPalette(); CTX = null; ["ja-skin", "ja-fonts", "ja-paper", "ja-motion", "ja-pal-ink", "ja-pal-cinnabar"].forEach((k) => document.body.classList.remove(k)); syncIcons(false); };
   }, "jules-atelier: styles");
   const reg = (slot, opts, comp) => ctx.slots.inject(slot, () => ctx.slots.register({ name: slot, ...opts }, comp));
   reg("conversation.hero.brand.mark", { priority: -10 }, HeroMark);
@@ -1728,4 +2423,16 @@ function apply(ctx) {
   reg("sidebar.session.row.hover", { id: "jules-atelier-hover", order: 50 }, SessionHover);
   reg("sidebar.footer.action", { id: "jules-atelier-ledger", order: -10 }, SideLedger);
   reg("settings.section", { id: "jules-atelier", order: 60, label: "Atelier" }, AtelierSettings);
+  reg("main", {
+    key: SPLIT_PANEL_ID,
+    children: { "ja.split.conversation": { kind: "single", scope: "session" } },
+  }, SplitWorkbench);
+  reg("ja.split.conversation", {}, SplitConversationPane);
+  reg("sidebar.panellist", { id: SPLIT_PANEL_ID, order: 25, label: () => "多卷同览" }, SplitSidebarIcon);
+  reg("conversation.session.header.actions", {
+    id: "jules-atelier-split-btn",
+    order: 15,
+    inject: (sessionId) => ({ sessionId }),
+  }, SplitHeaderButton);
+  reg("sidebar.workspaces.session.row.action", { id: "jules-atelier-split-row", order: 50 }, SplitRowActionButton);
 }
